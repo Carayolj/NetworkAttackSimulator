@@ -29,7 +29,7 @@ class Agent(object):
             int num_episodes : number of episodes to run agent for
             int max_steps : max number of steps per episode
             int timeout : time limit to train agent for (if none, then no limit)
-            bool verbose : whether to print progress mesaages to stdout or not
+            bool verbose : whether to print progress messages to stdout or not
             dict kwargs : any other parameters for taining (see method for implementing agent)
 
         Returns:
@@ -46,7 +46,7 @@ class Agent(object):
         """
         raise NotImplementedError
 
-    def _choose_greedy_action(self, state, action_space, episolon=0.05):
+    def _choose_greedy_action(self, state, action_space, epsilon=0.05):
         """
         Choose the best action for given state according to current policy
 
@@ -62,7 +62,7 @@ class Agent(object):
 
     def generate_episode(self, env, max_steps=100, epsilon=0.05):
         """
-        Generate and episode following the current greedy-policy.
+        Generate an episode following the current greedy-policy.
         This method is used to check the current learned policy.
 
         Arguments:

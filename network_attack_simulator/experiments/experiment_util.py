@@ -1,7 +1,7 @@
 from collections import OrderedDict
 from network_attack_simulator.envs.environment import NetworkAttackSimulator as Cyber
 from network_attack_simulator.agents.q_learning import QLearningAgent
-from network_attack_simulator.agents.random import RandomAgent
+from network_attack_simulator.agents.randomAgent import RandomAgent
 
 
 # generated environment constants
