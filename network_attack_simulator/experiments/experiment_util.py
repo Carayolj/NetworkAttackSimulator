@@ -2,6 +2,7 @@ from collections import OrderedDict
 from network_attack_simulator.envs.environment import NetworkAttackSimulator as Cyber
 from network_attack_simulator.agents.q_learning import QLearningAgent
 from network_attack_simulator.agents.randomAgent import RandomAgent
+from network_attack_simulator.agents.DoormaxAgent import DoormaxAgent
 
 
 # generated environment constants
@@ -100,7 +101,7 @@ agents["dqn"] = {
     "default": {"hidden_units": 256, "gamma": 0.99, "epsilon_decay_lambda": 0.0001}
      }
 agents["random"] = {}
-
+agents["doormax"]={}
 
 def is_valid_scenario(scenario_name, verbose=False):
     if scenario_name not in scenarios.keys():
@@ -164,6 +165,8 @@ def get_agent(agent_name, scenario_name, env):
 
     if agent_name == "random":
         return RandomAgent()
+    if agent_name == "doormax":
+        return DoormaxAgent(env.address_space,env.config['topology'])
 
     if scenario_name not in agents[agent_name].keys():
         scenario_name = "default"
