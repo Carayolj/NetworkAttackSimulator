@@ -147,13 +147,14 @@ class NetworkAttackSimulator(object):
         """
         if not self.current_state.reachable(action.target):
             return self.current_state, 0 - action.cost, False
-        if not self._action_traffic_permitted(action):
-            return self.current_state, 0 - action.cost, False
-
+#        if not self._action_traffic_permitted(action):
+#            return self.current_state, 0 - action.cost, False
+#TODO add firewall
         # non-deterministic actions
         if np.random.rand() > action.prob:
             return self.current_state, 0 - action.cost, False
-
+        if action.type=='exploit' and self.current_state._obs[action.target][action.service]==0:
+            return self.current_state, 0 - action.cost, False
         success, value, services = self.network.perform_action(action)
         value = 0 if self.current_state.compromised(action.target) else value
         self._update_state(action, success, services)

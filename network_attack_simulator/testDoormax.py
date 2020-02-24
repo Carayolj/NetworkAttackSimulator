@@ -102,9 +102,9 @@ def main():
     ep_tsteps, ep_rews, ep_times = agent.train(env, num_episodes, max_steps, timeout,
                                                verbose=True, **train_args)
 
-    gen_episode = agent.generate_episode(env, max_steps)
-    env.render_episode(gen_episode)
-    plot_results(ep_tsteps, ep_rews, ep_times, env)
+    #gen_episode = agent.generate_episode(env, max_steps)
+    #env.render_episode(gen_episode)
+    #plot_results(ep_tsteps, ep_rews, ep_times, env)
 
 
 if __name__ == "__main__":

@@ -166,7 +166,7 @@ def get_agent(agent_name, scenario_name, env):
     if agent_name == "random":
         return RandomAgent()
     if agent_name == "doormax":
-        return DoormaxAgent(env.address_space,env.config['topology'])
+        return DoormaxAgent(env.address_space,env.num_services,env.config['topology'])
 
     if scenario_name not in agents[agent_name].keys():
         scenario_name = "default"
