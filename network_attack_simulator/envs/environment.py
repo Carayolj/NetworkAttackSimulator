@@ -346,6 +346,19 @@ class NetworkAttackSimulator(object):
                 # at least one sensitive machine not compromised
                 return False
         return True
+    def _is_goal_state(self,s):
+        """
+        Check if the current state is the goal state.
+        The goal state is  when all sensitive machines have been compromised
+
+        Returns:
+            bool goal : True if goal state, otherwise False
+        """
+        for sensitive_m in self.network.get_sensitive_machines():
+            if not s.compromised(sensitive_m):
+                # at least one sensitive machine not compromised
+                return False
+        return True
 
     def __str__(self):
         output = "Environment: "

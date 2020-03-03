@@ -3,9 +3,11 @@ from collections import defaultdict
 
 import numpy as np
 from igraph import *
+from collections import OrderedDict
 
 from network_attack_simulator.agents.agent import Agent
 from network_attack_simulator.envs.action import Action
+from network_attack_simulator.envs.state import State
 
 effect_types = ["arithmetic", "assignement", "discovery"]
 SMAX = Graph(directed=True)
@@ -27,11 +29,64 @@ SMAX = Graph(directed=True)
 #             temp += [Graph.Read_Pickle(k)]
 #         return temp
 
-def reachable(s,addr):
+
 def compromised(s,addr):
+    targetMachine = s.vs[s.es[s.incident(str(addr), mode=ALL)[0]].source]
+    for e in s.incident(targetMachine, mode=ALL):
+        if s.es[e].attributes()['compromised'] == True:
+            return True
+    return False
+
 def service_info(s,addr,serv):
+    targetMachine = s.vs[s.es[s.incident(str(addr), mode=ALL)[0]].source].index
+    vuln=s.vs.select(name="V"+str(serv))[0]
+    value=s.es.select(_between=([targetMachine],[vuln.index]))[0].attributes()['is_vuln']
+    if value==True:
+        return 1
+    elif value==False:
+        return 2
+    elif value=="Unknown":
+        return 0
+    else:
+        print('here')
 
-
+def reachable(agent,s, addr):
+    reachable = False
+    target_network, _ =addr
+    addr = str(addr)
+    if agent.true_topology[0][target_network] == 1:
+        reachable = True
+    compromised_edge = s.es.select(compromised_eq=True)
+    compromised = [s.vs[x.target] for x in compromised_edge]
+    for m in compromised:
+        for e in s.incident(m, mode=ALL):
+            if s.es[e].attributes()['has_adress']==True:
+                m_adress=s.vs[s.es[e].target]
+        net = int(m_adress.attributes()['name'].split(',')[0].split('(')[1])
+        if agent.true_topology[net][target_network] == 1:
+            reachable = True
+    return reachable
+def rebuild_state(state,agent):
+    obs = OrderedDict()
+    if state==str(SMAX):
+        for adress in agent.adress_space:
+            machine_state = OrderedDict()
+            machine_state['compromised'] = True
+            machine_state['reachable'] = True
+            for service in range(agent.nService):
+                machine_state[service] = -1
+            obs[adress] = machine_state
+        state = State(obs)
+        return state
+    for adress in agent.adress_space:
+        machine_state = OrderedDict()
+        machine_state['compromised']=compromised(state,adress)
+        machine_state['reachable']=reachable(agent,state,adress)
+        for service in range(agent.nService):
+            machine_state[service]=service_info(state,adress,service)
+        obs[adress]=machine_state
+    state = State(obs)
+    return state
 class Prediction:
     def __init__(self, model, effect,parameter):
         self.model = model
@@ -46,35 +101,49 @@ class Prediction:
             for i in range(len(params)):
                 if s.vs[c[self.parameter[i]]]['name'] != params[i]:
                     candidates.remove(c)
+        print('Isomorphisms between situation and old model')
+        for c in candidates:
+            print('----------------------------')
+            for n in c:
+                print(s.vs[c.index(n)].attributes()['name'],"replaced by",s.vs[n].attributes()['name'])
         new=deepcopy(self.model)
         if len(candidates)>1:
-            print("RHAAAAAAAAAAAAAAAAAAAAAA")
-        c=candidates[0]
+            print("more than one parameter-conserving isomorphism")
+            c=candidates[1]
+            #TODO get all info by treating every isomorphisms
+        else:
+            c=candidates[0]
         to_delete=[]
+        atts=[]
         for edge in self.model.es:
             correspondingEdge=s.es[s.es.select(_between=(set([c[edge.source]]),set([c[edge.target]]))).indices[0]]
             for att in correspondingEdge.attributes():
                 if edge[att]!=correspondingEdge[att]:
                     try:
                         to_delete+=[edge]
+                        atts+=[att]
                         #new.delete_edges(edge.index)
                         break
                     except :
                         print('squalala')
+        for edge in to_delete:
+            print()
         new.delete_edges(to_delete)
         #show(self.model)
         old_new_debug=deepcopy(new)
         #TODO Remove isolated
         clusters=new.components(mode=WEAK)
         for clust in clusters:
-            if 0 in clust:
+            if 0 in clust and len(clust)<len(new.vs):
                 new=new.subgraph(clust)
         if 'H' in new.vs[:]['name']:
             for e in new.es.select(connected=True, _from=0):
                 if e.target != e.source:
                     show(new)
                     self.model=new
-                    return
+                    return True
+        else:
+            return False
             #pas la meme cause:
         # self.model.get_isomorphism_vf2()
 class Effect:
@@ -90,7 +159,7 @@ class Effect:
 
     def __eq__(self, other):
 
-        return self.relation == other.relation and self.potentialTypes == other.potentialTypes
+        return self.relation == other.relation and self.potentialTypes == other.potentialTypes #TODO add multiIso
 
 def multiIso(g1s,g2s):
     if len(g1s) != len(g2s):
@@ -278,7 +347,7 @@ def potentialEffect(s1: object, s2: object, parameter):
         for effect2 in consequence:
             if effect1 is not effect2:
                 if effect1 != effect2:
-                    if multiIso(effect1.oSrc, effect2.oSrc) and multiIso(effect1.oDest,effect2.oDest):  # TODO replace by isomorphic
+                    if multiIso(effect1.oSrc, effect2.oSrc) and multiIso(effect1.oDest,effect2.oDest):
                         for potentialTypes1 in effect1.potentialTypes:
                             for potentialTypes2 in effect2.potentialTypes:
                                 if potentialTypes1[0] == potentialTypes2[0] and potentialTypes1[1] != potentialTypes2[
@@ -392,15 +461,24 @@ class DoormaxAgent(Agent):
 
     def __init__(self, adress_space, nService, topology,
                  action_space=[("scan", ["adress"]), ("exploit", ["adress", "service"])], k=3, knowledge={}):
-        self.lookUp = {}
-        self.lookUp[str(SMAX.write_pickle())]=SMAX
+        #self.lookUp = {}
+        #self.lookUp[str(SMAX.write_pickle())]=SMAX
         self.gamma = 0.9
         self.action_space = action_space
         self.adress_space = adress_space
         self.true_topology = topology
         self.nService = nService
-        self.V = {}#defaultdict(lambda: 0)
-        self.V[str(SMAX)]=0
+        self.V = defaultdict(lambda: 0)
+        obs = OrderedDict()
+        for adress in self.adress_space:
+            machine_state = OrderedDict()
+            machine_state['compromised'] = True
+            machine_state['reachable'] = True
+            for service in range(self.nService):
+                machine_state[service] = -1
+            obs[adress] = machine_state
+        self.keySMAX = State(obs)
+        self.V[self.keySMAX]=1000
 
         nets = len(set([a for a, _ in adress_space]))
         self.topology_knowledge = []
@@ -430,34 +508,42 @@ class DoormaxAgent(Agent):
 
             # self.knowledge =
 
+
+
     def test(self, env):
-        ini_s = env._generate_initial_state()
-        s = self._process_state(ini_s)
-        test1=[Action((1, 0), 1),Action((1, 0), 1, service=0, type="exploit")]
-        for a in test1:
-            s,_,_=env.step(a)
-        s=self._process_state(s)
-        env2=deepcopy(env)
-        a1=Action((2, 0), 1)
-        a2=Action((2, 0), 1, service=0, type="exploit")
-        a3=Action((3, 0), 1)
-        a4=Action((3, 0), 1, service=0, type="exploit")
+        s0 = env._generate_initial_state()
+        s0_processed=self._process_state(s0)
+
+        a1=Action((1, 0), 1)
         s1,_,_=env.step(a1)
-        s1=self._process_state(s1)
+        s1_processed=self._process_state(s1)
+        self.addExperience(s0_processed,a1,s1_processed)
+
+        a2=Action((1, 0), 1, service=0, type="exploit")
         s2, _, _ = env.step(a2)
-        s2 = self._process_state(s2)
+        s2_processed = self._process_state(s2)
+        self.addExperience(s1_processed,a2,s2_processed)
+
+        a3=Action((2, 0), 1)
         s3,_,_=env.step(a3)
-        s3=self._process_state(s3)
-        s4,_,_=env.step(a4)
-        s4=self._process_state(s4)
-        equals(s3,s4)
-        self.addExperience(s,a1,s1)
-        self.addExperience(s1,a2,s2)
-        self.addExperience(s2,a3,s3)
-        self.addExperience(s3,a4,s4)
-        #g_simple=Graph()
-        #g.add_vertex(name=,label=)
-        #print('here')
+        s3_processed=self._process_state(s3)
+        self.addExperience(s2_processed,a3,s3_processed)
+
+        a4=Action((2, 0), 1, service=0, type="exploit")
+        s4, _, _ = env.step(a4)
+        s4_processed = self._process_state(s4)
+        self.addExperience(s3_processed, a4, s4_processed)
+
+        a5=Action((3, 0), 1)
+        s5, _, _ = env.step(a5)
+        s5_processed = self._process_state(s5)
+        self.addExperience(s4_processed, a5, s5_processed)
+
+        a6=Action((3, 0), 1, service=0, type="exploit")
+        s6,_,_=env.step(a6)
+        s6_processed=self._process_state(s6)
+        self.addExperience(s5_processed,a4,s6_processed)
+        print('here')
 
         # a = Action((3, 0), 1)
         # new_s, _, _ = env.step(a)
@@ -482,32 +568,26 @@ class DoormaxAgent(Agent):
             ep_reward = 0
             max_steps = 100
             s = env._generate_initial_state()
+            print("================================================")
+            print(s)
             s = self._process_state(s)
-            # new_s,_,_=env.step(Action((1, 0),1))
-            # new_s = self._process_state(new_s)
-            # E=potentialEffect(s,new_s,["(1, 0)"])
-            # apply(s,Action((1, 0),1),E)
-            # s=new_s
-            # new_s,_,_=env.step(Action((1,0), 1,service=0, type="exploit"))
-            # new_s = self._process_state(new_s)
-            # E=potentialEffect(s, new_s, ["(1, 0)","V0"])
-            # apply(s, Action((1,0), 1,service=0, type="exploit"), E)
-            #self.updateValues(s)
+
             while not done:
-                # s = self._process_state(s)
-                #show(s)
                 a = self.policy(s)  # policy(s)
                 print(a)
                 new_s, reward, done = env.step(a)
+                print(new_s)
                 new_s = self._process_state(new_s)
                 self.addExperience(s, a, new_s)
                 #self.showKnowledge()
-                self.updateValues(new_s)
+                self.updateValues(new_s,env)
                 if step == max_steps:
                     done = True
                 step += 1
                 ep_reward += reward
                 s = new_s
+                if done ==True:
+                    print("\n\n=============================================\n=============================================")
 
     def random_policy(self, s):
         candidates = []
@@ -528,35 +608,35 @@ class DoormaxAgent(Agent):
             candidates[a] = {}
             if a == "exploit":
                 for addr in self.adress_space:
-                    for serv in self.nService:
+                    for serv in range(self.nService):
                         candidates[a][(addr, serv)] = self.predictTransition(s, Action(addr, 1.0, service=serv,
                                                                                        type="exploit"))
             elif a == "scan":
                 for addr in self.adress_space:
                     candidates[a][addr] = self.predictTransition(s, Action(addr, 1.0))
-            flatCandidates = {}
-            for i in list(candidates.keys()):
-                for j in list(candidates[i].keys()):
-                    flatCandidates[(i, j)] = candidates[i][j]
-            for k in flatCandidates.keys():
-                if flatCandidates[k] == s:
-                    values[k] = -1000
-                elif flatCandidates[k] == SMAX:
-                    values[k] = 1000
-                else:
-
-                    values[k] = self.V[str(s)]
-            max = np.amax(list(values.values()))
-            final_candidates = []
-            for k in list(values.keys()):
-                if values[k] == max:
-                    final_candidates += [k]
-            action = random.choice(final_candidates)
-            if action[0] == "scan":
-                a = Action(action[1], 1.0)
+        flatCandidates = {}
+        for i in list(candidates.keys()):
+            for j in list(candidates[i].keys()):
+                flatCandidates[(i, j)] = candidates[i][j]
+        for k in flatCandidates.keys():
+            if equals(flatCandidates[k],s):
+                values[k] = -1000
+            elif flatCandidates[k] == SMAX:
+                values[k] = 1000
             else:
-                a = Action(action[1][0], 1.0, service=action[1][1], type="exploit")
-            return a
+                values[k] = self.V[rebuild_state(flatCandidates[k],self)]
+        print(values)
+        max = np.amax(list(values.values()))
+        final_candidates = []
+        for k in list(values.keys()):
+            if values[k] == max:
+                final_candidates += [k]
+        action = random.choice(final_candidates)
+        if action[0] == "scan":
+            a = Action(action[1], 1.0)
+        else:
+            a = Action(action[1][0], 1.0, service=action[1][1], type="exploit")
+        return a
 
     def reset(self):
         pass
@@ -668,6 +748,7 @@ class DoormaxAgent(Agent):
     def addExperience(self, s, a, new_s):
         if equals(s, new_s):
             # add s to failure for a
+            print('No effects for',a,': adding to failure')
             self.addFailure(s, a)
         else:
             potentialEffects = potentialEffect(s, new_s, get_parameters(a))
@@ -676,7 +757,9 @@ class DoormaxAgent(Agent):
                 for pred in self.knowledge['pred'][a.type]:
                     if pred.effect == e:
                         found = True
+                        print("Effect already exists")
                         if pred.updateModel(s,a)==False:
+                            print("Impossible to update model: adding a prediction")
                             self.knowledge['pred'][a.type] += [Prediction(s, e, params)]
 
                         '''
@@ -690,20 +773,21 @@ class DoormaxAgent(Agent):
                     for c in self.knowledge['pred'][a.type]:
                         if s.get_subisomorphisms_vf2(c.model, node_compat_fn=compat_node, edge_compat_fn=compat_edges):
                             # P[a][att][e.type] = False
-                            print("issue")
+                            print("issue: overlap")#si deux effets sous meme condition: overlap, pas pertinent de garder?
                             # return pred,failure
                     params=get_parameters(a)
                     for i in range(len(params)):
                         params[i]=s.vs.select(name=params[i])[0].index
+                    print("New effect. Creating a prediction")
                     self.knowledge['pred'][a.type] += [Prediction(s, e,params)]
                     # if (len(pred[a][att][e.type])) > self.k:
                     # TODO gerer nombre predictions differentes
                     # P.remove(pred[a][att][e.type])
                     # P[a][att][e.type] = False
 
-    def updateValues(self,current_s):
+    def updateValues(self,current_s,env):
         actions = []
-        new_V={}
+        new_V=defaultdict(lambda x:0)
         for a, _ in self.action_space:
             for add in self.adress_space:
                 for v in range(self.nService):
@@ -712,22 +796,28 @@ class DoormaxAgent(Agent):
                     else:
                         action = Action(add, 1)
                     actions += [action]
-        temp=str(current_s.write_pickle())
+        #temp=str(current_s.write_pickle())
 #        for state in self.lookUp
-        if not temp in self.V.keys():
-            self.lookUp[temp]=current_s
-            self.V[temp]=0
+        #if not temp in self.V.keys():
+        #    self.lookUp[temp]=current_s
+        #    self.V[temp]=0
+        current_s_rebuilt=rebuild_state(current_s, self)
+        if current_s_rebuilt not in self.V.keys():
+            self.V[current_s_rebuilt]=0
         for k in self.V.keys():
-            if k!= str(SMAX):
-                correspondingState=self.lookUp[k]
+            if k!= self.keySMAX and not env._is_goal_state(k):
+                correspondingState=self._process_state(k)
                 candidates = []
                 for a in actions:
                     predicted=self.predictTransition(correspondingState, a)
-                    key=str(predicted.write_pickle())
+                    if predicted != SMAX:
+                        key=rebuild_state(predicted,self)
+                    else:
+                        key=self.keySMAX
                     #if key not in V.keys():
                     candidates += [self.getReward(correspondingState, a) + self.gamma * self.V[key]]
                 new_V[k] = np.amax(candidates)
-                new_V[str(SMAX)]=1000
+                new_V[self.keySMAX]=1000
         self.V=new_V
             # pour chaque etat connu different de SMAX
     def predictTransition(self, s, a):
@@ -763,21 +853,13 @@ class DoormaxAgent(Agent):
 
     def getReward(self, s, a):
         type = a.type
-        target_network, _ = a.target
-        addr = str(a.target)
         serv = a.service
-        reachable=False
-        if self.true_topology[0][target_network] == 1:
-            reachable = True
-        compromised_edge = s.es.select(compromised_eq=True)
-        compromised = [s.vs[x.target] for x in compromised_edge]
+        addr=a.target
+        reach=reachable(self,s,addr)
+        addr=str(addr)
         targetMachine = s.vs[s.es[s.incident(addr, mode=ALL)[0]].source]
-        for m in compromised:
-            net = m.attributes()['name'].split(',')[0].split('(')[1]
-            if self.true_topology[net][target_network] == 1:
-                reachable = True
         if type == "scan":
-            if reachable:
+            if reach:
                 for e in s.incident(targetMachine, mode=ALL):
                     if s.es[e].attributes()['is_vuln'] == True or s.es[e].attributes()['is_vuln'] == False:
                         return 0 - a.cost
