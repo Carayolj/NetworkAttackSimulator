@@ -8,7 +8,7 @@ from collections import OrderedDict
 from network_attack_simulator.agents.agent import Agent
 from network_attack_simulator.envs.action import Action
 from network_attack_simulator.envs.state import State
-
+from network_attack_simulator.envs.environment import NetworkAttackSimulator
 effect_types = ["arithmetic", "assignement", "discovery"]
 SMAX = Graph(directed=True)
 
@@ -94,6 +94,7 @@ class Prediction:
         self.parameter=parameter #tableau, adresse ou adresse,service
         self.readableParams=[self.model.vs[i]['name'] for i in parameter]
     def updateModel(self, s,a):
+
         candidates = s.get_subisomorphisms_vf2(self.model, node_compat_fn=compat_node,edge_compat_fn=(lambda q,w,e,r : True))
         params = get_parameters(a)
         temp = deepcopy(candidates)
@@ -106,44 +107,52 @@ class Prediction:
             print('----------------------------')
             for n in c:
                 print(s.vs[c.index(n)].attributes()['name'],"replaced by",s.vs[n].attributes()['name'])
-        new=deepcopy(self.model)
-        if len(candidates)>1:
-            print("more than one parameter-conserving isomorphism")
-            c=candidates[1]
-            #TODO get all info by treating every isomorphisms
-        else:
-            c=candidates[0]
-        to_delete=[]
-        atts=[]
-        for edge in self.model.es:
-            correspondingEdge=s.es[s.es.select(_between=(set([c[edge.source]]),set([c[edge.target]]))).indices[0]]
-            for att in correspondingEdge.attributes():
-                if edge[att]!=correspondingEdge[att]:
-                    try:
-                        to_delete+=[edge]
-                        atts+=[att]
-                        #new.delete_edges(edge.index)
-                        break
-                    except :
-                        print('squalala')
-        for edge in to_delete:
-            print()
-        new.delete_edges(to_delete)
-        #show(self.model)
-        old_new_debug=deepcopy(new)
-        #TODO Remove isolated
-        clusters=new.components(mode=WEAK)
-        for clust in clusters:
-            if 0 in clust and len(clust)<len(new.vs):
-                new=new.subgraph(clust)
-        if 'H' in new.vs[:]['name']:
-            for e in new.es.select(connected=True, _from=0):
-                if e.target != e.source:
-                    show(new)
-                    self.model=new
-                    return True
-        else:
-            return False
+        for c in candidates:
+            new = deepcopy(self.model)
+            to_delete=[]
+            atts=[]
+            print("=================================================\n\n")
+            for edge in self.model.es:
+                correspondingEdge=s.es[s.es.select(_between=(set([c[edge.source]]),set([c[edge.target]]))).indices[0]]
+                for att in correspondingEdge.attributes():
+                    if edge[att]!=correspondingEdge[att]:
+                        print("Old value for relation",att," between",self.model.vs[edge.source].attributes()['name'],'and',self.model.vs[edge.target].attributes()['name'],':',edge[att])
+                        print("New value for corresponding edge between",s.vs[c[edge.source]].attributes()['name'],'and',s.vs[c[edge.target]].attributes()['name'],':',correspondingEdge[att],"\n")
+                        try:
+                            to_delete+=[edge]
+                            atts+=[att]
+                            #new.delete_edges(edge.index)
+                            break
+                        except :
+                            print('squalala')
+            for i in new.vs.indices:
+                new.vs[i]['label'] += '(' + s.vs[c[i]].attributes()['label'] + ')'
+            for e in to_delete:
+                new.es[e.index]['width']=4
+                new.es[e.index]['color']='black'
+            show(new)
+
+            new.delete_edges(to_delete)
+            #show(self.model)
+            old_new_debug=deepcopy(new)
+            #TODO Remove isolated
+            clusters=new.components(mode=WEAK)
+            for clust in clusters:
+                if 'H' in [new.vs[i].attributes()['name'] for i in clust] and len(clust)<len(new.vs):
+    #            if 0 in clust and len(clust)<len(new.vs):
+                    new=new.subgraph(clust)
+                    break
+                    #garder le cluster avec le noeud H
+            if 'H' in new.vs[:]['name']:
+                for e in new.es.select(connected=True, _from=0):
+                    if e.target != e.source:
+                        show(new)
+                        self.model=new
+                        return True
+#            return False
+#        else:
+
+        return False
             #pas la meme cause:
         # self.model.get_isomorphism_vf2()
 class Effect:
@@ -179,7 +188,23 @@ def show(g):
         for graf in g:
             layout = graf.layout_kamada_kawai()
             plot(graf, layout=layout, margin=100, vertex_label_dist=1, edge_label_dist=2)
+            '''
+            from igraph import Graph, Plot
+from igraph.drawing.text import TextDrawer
+import cairo
 
+#plot = Plot("plot.png", bbox=(600, 650), background="white")
+#plot.add(new, bbox=(20, 70, 580, 630))
+#plot.redraw()
+layout = new.layout_kamada_kawai()
+drawing=plot(new, layout=layout, margin=100, vertex_label_dist=1, edge_label_dist=2)
+ctx = cairo.Context(drawing.surface)
+ctx.set_font_size(36)
+drawer = TextDrawer(ctx, "Test title", halign=TextDrawer.CENTER)
+drawer.draw_at(100, 100, width=600)
+#drawing.redraw()
+drawing.show()
+            '''
 
 def showEffects(E):
     for e in E:
@@ -230,8 +255,8 @@ def strong_compat_node(g1, g2, n1, n2):
 def strong_compat_edges(g1, g2, e1, e2):
     edge1 = g1.es[e1]
     edge2 = g2.es[e2]
-    if e1==10 and e2==10:
-        print("Same Node?? WTF??")
+    #if e1==10 and e2==10:
+    #    print("Same Node?? WTF??")
     try:
         for att in edge1.attributes():
             if edge1.attributes()[att] != edge2.attributes()[att]:
@@ -320,7 +345,7 @@ def potentialEffect(s1: object, s2: object, parameter):
         path1, path2 = findBestPath(s1, s2, e1, e2, parameter)
         # show(path1[i])
         # show(path2[i])
-        att = e1.attributes()['label']
+        att = e1.attributes()['name']
         old_value = e1.attributes()[att]
         new_value = e2.attributes()[att]
         if old_value != new_value:
@@ -508,7 +533,18 @@ class DoormaxAgent(Agent):
 
             # self.knowledge =
 
+    def show_knowledge(self):
 
+        for action in self.knowledge.keys():
+            for pred in self.knowledge[action]:
+                temp = deepcopy(pred.model)
+                SourceCandidates = get_refering_object(pred.model, pred.effect.source, pred.parameter)
+                DestCandidates = get_refering_object(pred.model, pred.effect.source, pred.parameter)
+                edges = new_s.es.select(_between=(set(SourceCandidates), set(DestCandidates)))
+                for e in edges:
+                    temp.es[e.index]['width']=4
+                    temp.es[e.index]['color']='blue'
+                show(temp)
 
     def test(self, env):
         s0 = env._generate_initial_state()
@@ -522,7 +558,7 @@ class DoormaxAgent(Agent):
         a2=Action((1, 0), 1, service=0, type="exploit")
         s2, _, _ = env.step(a2)
         s2_processed = self._process_state(s2)
-        self.addExperience(s1_processed,a2,s2_processed)
+        #self.addExperience(s1_processed,a2,s2_processed)
 
         a3=Action((2, 0), 1)
         s3,_,_=env.step(a3)
@@ -532,7 +568,7 @@ class DoormaxAgent(Agent):
         a4=Action((2, 0), 1, service=0, type="exploit")
         s4, _, _ = env.step(a4)
         s4_processed = self._process_state(s4)
-        self.addExperience(s3_processed, a4, s4_processed)
+        #self.addExperience(s3_processed, a4, s4_processed)
 
         a5=Action((3, 0), 1)
         s5, _, _ = env.step(a5)
@@ -557,11 +593,31 @@ class DoormaxAgent(Agent):
     # new_s = self._process_state(new_s)
     # E=potentialEffect(s, new_s, ["(1, 0)","V0"])
     # apply(s, Action((1,0), 1,service=0, type="exploit"), E)
+    def tutorial(self):
+        curriculum=NetworkAttackSimulator.from_file('C:\\Users\\Julien\\NetworkAttackSimulator\\network_attack_simulator\\configs\\curriculum.yaml')
+        done=False
+        s = curriculum._generate_initial_state()
+        s = self._process_state(s)
 
+        while not done:
+            a = self.policy(s)  # policy(s)
+            print(a)
+            new_s, reward, done = curriculum.step(a)
+            # print(new_s)
+            new_s = self._process_state(new_s)
+            self.addExperience(s, a, new_s)
+            # self.showKnowledge()
+            self.updateValues(new_s, env)
+            if step == max_steps:
+                done = True
+            step += 1
+            ep_reward += reward
+            s = new_s
     def train(self, env, num_episodes=100, max_steps=100, timeout=None, verbose=False, **kwargs):
-        self.test(env)
+        #self.test(env)
         # layout = g.layout_kamada_kawai()
         # plot(g, layout=layout, margin=10, vertex_label_dist=1,edge_label_dist=2)
+        #self.tutorial()
         for episode in range(num_episodes):
             done = False
             step = 0
@@ -576,7 +632,7 @@ class DoormaxAgent(Agent):
                 a = self.policy(s)  # policy(s)
                 print(a)
                 new_s, reward, done = env.step(a)
-                print(new_s)
+                #print(new_s)
                 new_s = self._process_state(new_s)
                 self.addExperience(s, a, new_s)
                 #self.showKnowledge()
@@ -588,6 +644,7 @@ class DoormaxAgent(Agent):
                 s = new_s
                 if done ==True:
                     print("\n\n=============================================\n=============================================")
+                    print(ep_reward)
 
     def random_policy(self, s):
         candidates = []
@@ -711,7 +768,8 @@ class DoormaxAgent(Agent):
                         self.topology_knowledge[self.last_compromised_net][network] = 0
                         self.topology_knowledge[network][self.last_compromised_net] = 0
             '''
-
+        # TODO repasser en non observable
+        self.topology_knowledge=self.true_topology
         for i in range(len(self.topology_knowledge)):
             for j in range(len(self.topology_knowledge)):
                 if self.topology_knowledge[i][j] == 0:
@@ -735,8 +793,8 @@ class DoormaxAgent(Agent):
             v["label"] = v["name"]
         for e in g.es:
             for att in e.attributes():
-                if e.attributes()[att] is not None and att != "label" and att != "color":
-                    e["label"] = att
+                if e.attributes()[att] is not None and att != "label" and att != "color" and att != 'name':
+                    e["name"] = att
                     e["color"] = color_dict_edge[e.attributes()[att]]
         # layout = g.layout_kamada_kawai()
         # plot(g, layout=layout, margin=20, vertex_label_dist=1)
@@ -758,9 +816,13 @@ class DoormaxAgent(Agent):
                     if pred.effect == e:
                         found = True
                         print("Effect already exists")
-                        if pred.updateModel(s,a)==False:
-                            print("Impossible to update model: adding a prediction")
-                            self.knowledge['pred'][a.type] += [Prediction(s, e, params)]
+                        if not equals(s,pred.model):
+                            if pred.updateModel(s,a)==False:
+                                print("Impossible to update model: adding a prediction")
+                                params = get_parameters(a)
+                                for i in range(len(params)):
+                                    params[i] = s.vs.select(name=params[i])[0].index
+                                self.knowledge['pred'][a.type] += [Prediction(s, e, params)]
 
                         '''
                         for c in pred[a][att][e.type]:
@@ -787,7 +849,7 @@ class DoormaxAgent(Agent):
 
     def updateValues(self,current_s,env):
         actions = []
-        new_V=defaultdict(lambda x:0)
+        new_V=defaultdict(lambda: 0)
         for a, _ in self.action_space:
             for add in self.adress_space:
                 for v in range(self.nService):
@@ -811,11 +873,13 @@ class DoormaxAgent(Agent):
                 for a in actions:
                     predicted=self.predictTransition(correspondingState, a)
                     if predicted != SMAX:
-                        key=rebuild_state(predicted,self)
+                        next_state=rebuild_state(predicted,self)
                     else:
-                        key=self.keySMAX
-                    #if key not in V.keys():
-                    candidates += [self.getReward(correspondingState, a) + self.gamma * self.V[key]]
+                        next_state=self.keySMAX
+                    if next_state in self.V.keys():
+                        candidates += [self.getReward(correspondingState, a) + self.gamma * self.V[next_state]]
+                    else:
+                        candidates += [self.getReward(correspondingState, a)]
                 new_V[k] = np.amax(candidates)
                 new_V[self.keySMAX]=1000
         self.V=new_V
