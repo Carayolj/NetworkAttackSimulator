@@ -1,4 +1,5 @@
 import random
+import time
 from collections import defaultdict
 
 import numpy as np
@@ -9,8 +10,10 @@ from network_attack_simulator.agents.agent import Agent
 from network_attack_simulator.envs.action import Action
 from network_attack_simulator.envs.state import State
 from network_attack_simulator.envs.environment import NetworkAttackSimulator
-effect_types = ["arithmetic", "assignement", "discovery"]
-SMAX = Graph(directed=True)
+from network_attack_simulator.envs.generator import  generate_config
+
+effect_types = ["assignement", "discovery"]
+SMAX = Graph()
 
 #g1s.get_subisomorphisms_vf2(g2s, node_compat_fn=compat_node, edge_compat_fn=compat_edges)
 
@@ -91,41 +94,52 @@ class Prediction:
     def __init__(self, model, effect,parameter):
         self.model = model
         self.effect = effect
-        self.parameter=parameter #tableau, adresse ou adresse,service
+        self.parameter=parameter #tableau: adresse ou adresse,service
         self.readableParams=[self.model.vs[i]['name'] for i in parameter]
-    def updateModel(self, s,a):
-
+    def updateModel(self, s,a,visualize=True):
+        #TODO update parameter index when removing nodes
         candidates = s.get_subisomorphisms_vf2(self.model, node_compat_fn=compat_node,edge_compat_fn=(lambda q,w,e,r : True))
+        #corr=X.get_sub(Y)
+        #corr[i]=j :
+        # i in Y
+        # j in X
         params = get_parameters(a)
         temp = deepcopy(candidates)
         for c in temp:
             for i in range(len(params)):
-                if s.vs[c[self.parameter[i]]]['name'] != params[i]:
-                    candidates.remove(c)
-        print('Isomorphisms between situation and old model')
-        for c in candidates:
-            print('----------------------------')
-            for n in c:
-                print(s.vs[c.index(n)].attributes()['name'],"replaced by",s.vs[n].attributes()['name'])
+                try:
+                    #Garder uniquement les isomorphisme dont le noeud parametre utilisé pour le modele
+                    # correspond au noeud parametre utilisé dans la nouvelle situation
+                    if s.vs[c[self.parameter[i]]]['name'] != params[i]:
+                        candidates.remove(c)
+                        break
+                except:
+                    print("...")
+        #print('Isomorphisms between situation and old model')
+        #for c in candidates:
+            #print('----------------------------')
+            #for n in c:
+                #print(s.vs[c.index(n)].attributes()['name'],"replaced by",s.vs[n].attributes()['name'])
         for c in candidates:
             new = deepcopy(self.model)
             to_delete=[]
-            atts=[]
-            print("=================================================\n\n")
+            #print("=================================================\n\n")
             for edge in self.model.es:
+                #Pour chaque arc, trouver l'arc correspondant
                 correspondingEdge=s.es[s.es.select(_between=(set([c[edge.source]]),set([c[edge.target]]))).indices[0]]
                 for att in correspondingEdge.attributes():
                     if edge[att]!=correspondingEdge[att]:
-                        print("Old value for relation",att," between",self.model.vs[edge.source].attributes()['name'],'and',self.model.vs[edge.target].attributes()['name'],':',edge[att])
-                        print("New value for corresponding edge between",s.vs[c[edge.source]].attributes()['name'],'and',s.vs[c[edge.target]].attributes()['name'],':',correspondingEdge[att],"\n")
-                        try:
-                            to_delete+=[edge]
-                            atts+=[att]
-                            #new.delete_edges(edge.index)
-                            break
-                        except :
-                            print('squalala')
+                        #print("Old value for relation",att," between",self.model.vs[edge.source].attributes()['name'],'and',self.model.vs[edge.target].attributes()['name'],':',edge[att])
+                        #print("New value for corresponding edge between",s.vs[c[edge.source]].attributes()['name'],'and',s.vs[c[edge.target]].attributes()['name'],':',correspondingEdge[att],"\n")
+                        to_delete+=[edge]
+                        break
+            if len(to_delete)>1:
+                #si plus d'une difference, pas le bon candidat
+                continue
             for i in new.vs.indices:
+                #Pour la visualisation changer le nom des noeuds par les
+                # deux noms des noeuds dans le modele et la situation
+                # et marquer les arcs a supprimer en gras
                 new.vs[i]['label'] += '(' + s.vs[c[i]].attributes()['label'] + ')'
             for e in to_delete:
                 new.es[e.index]['width']=4
@@ -134,24 +148,56 @@ class Prediction:
 
             new.delete_edges(to_delete)
             #show(self.model)
-            old_new_debug=deepcopy(new)
-            #TODO Remove isolated
             clusters=new.components(mode=WEAK)
+            #Recuperer les clusters pour essayer de supprimer les noeuds isolés.
+            # Si un noeud est isolé, les relations avec celui ci n'importent pas, et il
+            # n'influe pas dans l'issue d'une action
             for clust in clusters:
-                if 'H' in [new.vs[i].attributes()['name'] for i in clust] and len(clust)<len(new.vs):
-    #            if 0 in clust and len(clust)<len(new.vs):
+                #Un cluster est valide si H, et les parametres, sont inclus, et si sa taill
+                wrongCluster=False
+                parametersChanged=False
+                namesClust=[new.vs[i].attributes()['name'] for i in clust]
+                for p in self.readableParams+['H']:
+                    if p not in namesClust:
+                        wrongCluster=True
+                if len(clust)<len(new.vs):
+                    parametersChanged=True
+                if not wrongCluster:
                     new=new.subgraph(clust)
-                    break
-                    #garder le cluster avec le noeud H
-            if 'H' in new.vs[:]['name']:
+                    if parametersChanged:
+                        new_params=[]
+                        #Actualiser l'indice du/des parametre.s, si on retire des noeuds
+                        for p in self.readableParams:
+                            try:
+                                new_params+=[new.vs.select(name_eq=p).indices[0]]
+                            except:
+                                print('dsd')
+                        break
+            #Verifier que H est connecté au reste du reseau
+            if not wrongCluster and 'H' in new.vs[:]['name']:
                 for e in new.es.select(connected=True, _from=0):
-                    if e.target != e.source:
-                        show(new)
+                    if e.target != e.source:# si il ne s'agit pas de l'arc reliant H a lui-meme
+                        if self.effect is None:
+                            t='failure '+a.type+ str(a.target)
+                        else:
+                            t='pred' + a.type
+                        if a.type=='exploit':
+                            t+=str(a.service)
+                        print('*********************Model Update for',t, '***************************')
+                        for edge in to_delete:
+                            att=edge.attributes()['name']
+                            correspondingEdge = s.es[s.es.select(_between=(set([c[edge.source]]), set([c[edge.target]]))).indices[0]]
+                            print("Old value for relation",att," between",self.model.vs[edge.source].attributes()['name'],'and',self.model.vs[edge.target].attributes()['name'],':',edge[att])
+                            print("New value for corresponding edge between",s.vs[c[edge.source]].attributes()['name'],'and',s.vs[c[edge.target]].attributes()['name'],':',correspondingEdge[att],"\n")
+                        show(self.model,visualize=visualize)
+                        show(new,visualize=visualize)
                         self.model=new
+                        if parametersChanged:
+                            print('Old:',self.readableParams)
+                            print('New:',[self.model.vs[i]['name'] for i in new_params])
+                            self.parameter=new_params
+                            self.readableParams = [self.model.vs[i]['name'] for i in self.parameter]
                         return True
-#            return False
-#        else:
-
         return False
             #pas la meme cause:
         # self.model.get_isomorphism_vf2()
@@ -165,10 +211,11 @@ class Effect:
             self.potentialTypes += [(type, val)]
         # self.type=type
         # self.value=value
-
+    def __str__(self):
+        return str(self.oSrc[0]).split('\n')[-1]+"\n"+str(self.oDest[0]).split('\n')[-1]+"\n"+self.relation+"\n"+str(self.potentialTypes)
     def __eq__(self, other):
 
-        return self.relation == other.relation and self.potentialTypes == other.potentialTypes #TODO add multiIso
+        return multiIso(self.oSrc,other.oSrc) and multiIso(self.oDest,other.oDest) and self.relation == other.relation and self.potentialTypes == other.potentialTypes #TODO add multiIso
 
 def multiIso(g1s,g2s):
     if len(g1s) != len(g2s):
@@ -177,7 +224,9 @@ def multiIso(g1s,g2s):
         if not g1s[i].subisomorphic_vf2(g2s[i], node_compat_fn=compat_node, edge_compat_fn=compat_edges):
             return False
     return True
-def show(g):
+def show(g,visualize=False):
+    if not visualize:
+        return
     if isinstance(g, Graph):
         for e in g.es:
             if e.attributes()['compromised']==True or e.attributes()['is_vuln']==True:
@@ -271,13 +320,13 @@ def strong_compat_edges(g1, g2, e1, e2):
 def compat_node(g1, g2, n1, n2):
     node1 = g1.vs[n1]
     node2 = g2.vs[n2]
-    att1=node1.attributes()
-    att2=node2.attributes()
+    #att1=node1.attributes()
+    #att2=node2.attributes()
     try:
-        for att in node1.attributes():
-            if not att in ['name', 'label']:
-                if node1.attributes()[att] != node2.attributes()[att]:
-                    return False
+        #for att in node1.attributes():
+        #    if not att in ['name', 'label']:
+        if node1.attributes()["classe"] != node2.attributes()["classe"]:
+            return False
     except:
         print("not the same attributes between ", node1, " and ", node2)
         return False
@@ -288,9 +337,10 @@ def compat_edges(g1, g2, e1, e2):
     edge1 = g1.es[e1]
     edge2 = g2.es[e2]
     try:
-        for att in edge1.attributes():
-            if edge1.attributes()[att] != edge2.attributes()[att]:
-                return False
+        att=edge1.attributes()["name"]
+#        for att in edge1.attributes():
+        if edge1.attributes()[att] != edge2.attributes()[att]:
+            return False
     except:
         print("not the same attributes between ", edge1, " and ", edge2)
         return False
@@ -301,7 +351,7 @@ def findBestPath(s1, s2, e1, e2, parameter):
     # postulat: le meilleur moyen de referer a l'objet source et dest d'un arc
     # ayant changé de valeur est de prendre le chemin entre chacun des parametres et l'objet source/dest pour eviter l'ambiguité
     if len(parameter) == 1:
-        path1 = s1.get_shortest_paths(e1.source, parameter, mode=ALL)  # link between action arg and source object
+        path1 = s1.get_shortest_paths(e1.target, parameter, mode=ALL)  # link between action arg and source object
         path2 = [list(set(path1[0] + s1.get_shortest_paths(e1.source, e1.target, mode=ALL)[0]))]
     else:
         path1 = []
@@ -336,8 +386,7 @@ def potentialEffect(s1: object, s2: object, parameter):
     for e1 in s1.es:
         for e2 in s2.es:
             if s1.vs[e1.source].attributes() == s2.vs[e2.source].attributes() and s1.vs[e1.target].attributes() == \
-                    s2.vs[
-                        e2.target].attributes():  # compat_node(s1,s2,e1.source,e2.source) and compat_node(s1,s2,e1.target,e2.target):
+                    s2.vs[e2.target].attributes():  # compat_node(s1,s2,e1.source,e2.source) and compat_node(s1,s2,e1.target,e2.target):
                 if not e1.attributes() == e2.attributes():  # compat_edges(s1,s2,e1.index,e2.index):
                     diff_edge += [(e1, e2)]
     consequence = []
@@ -359,11 +408,6 @@ def potentialEffect(s1: object, s2: object, parameter):
                 elif t == "assignement":
                     typeEffect = t
                     valEffet = new_value
-                    potentialTypes += [(typeEffect, valEffet)]
-
-                elif t == "arithmetic" and type(old_value) == type(new_value):
-                    typeEffect = t
-                    valEffet = new_value - old_value
                     potentialTypes += [(typeEffect, valEffet)]
         consequence += [Effect(path1, path2, attEffect, potentialTypes)]
     # postulat: Si une action a un effet sur la relation entre plusieurs couples d'objets,
@@ -453,7 +497,7 @@ def apply(s, a, E):
                 e[rel] = True
                 e['color']='green'
                 # TODO CHANGE C'EST DEGEU
-        return new_s
+    return new_s
 
     # s_next=deepcopy(s)
     # for e in E:
@@ -465,16 +509,20 @@ def matches(situation, pred,a):
     temp=deepcopy(candidates)
     for c in temp:
         for i in range(len(params)):
-            if situation.vs[c[pred.parameter[i]]]['name']!=params[i]:
-                candidates.remove(c)
-                break
+            try:
+                if situation.vs[c[pred.parameter[i]]]['name'] != params[i]:
+                    candidates.remove(c)
+                    break
+            except:
+                print("bordel")
+                raise
     if len(candidates)>=1:
         return True
     elif len(candidates)==0:
         return False
     else:
-        return True
-
+        print("negative length, of course")
+        exit(-1)
 def incompatible(s, a, ei, ej):
     if multiIso(ei.oSrc, ej.oSrc) and multiIso(ei.oDest, ej.oDest) and ei.relation== ej.relation:
         if apply(s, a, [ei]) != apply(s, a, [ej]):
@@ -532,7 +580,23 @@ class DoormaxAgent(Agent):
                 self.knowledge['failure'][a[0]] = []
 
             # self.knowledge =
-
+    def reset_topology_knowledge(self):
+        nets = len(set([a for a, _ in self.adress_space]))
+        self.topology_knowledge = []
+        for i in range(nets + 1):
+            temp = []
+            for j in range(nets + 1):
+                if i == j:
+                    temp += [1]
+                else:
+                    temp += [2]
+            self.topology_knowledge += [temp]
+        self.topology_knowledge[0] = self.true_topology[0]
+        for a in range(len(self.topology_knowledge[0])):
+            if self.topology_knowledge[0][a] == 1:
+                self.topology_knowledge[a][0] = 1
+            else:
+                self.topology_knowledge[a][0] = 0
     def show_knowledge(self):
 
         for action in self.knowledge.keys():
@@ -548,39 +612,43 @@ class DoormaxAgent(Agent):
 
     def test(self, env):
         s0 = env._generate_initial_state()
-        s0_processed=self._process_state(s0)
+        s0_processed=self._process_state(s0,update_knowledge=True)
 
         a1=Action((1, 0), 1)
         s1,_,_=env.step(a1)
-        s1_processed=self._process_state(s1)
+        s1_processed=self._process_state(s1,update_knowledge=True)
         self.addExperience(s0_processed,a1,s1_processed)
 
         a2=Action((1, 0), 1, service=0, type="exploit")
         s2, _, _ = env.step(a2)
-        s2_processed = self._process_state(s2)
-        #self.addExperience(s1_processed,a2,s2_processed)
+        s2_processed = self._process_state(s2,update_knowledge=True)
+        self.addExperience(s1_processed,a2,s2_processed)
 
         a3=Action((2, 0), 1)
         s3,_,_=env.step(a3)
-        s3_processed=self._process_state(s3)
+        s3_processed=self._process_state(s3,update_knowledge=True)
         self.addExperience(s2_processed,a3,s3_processed)
 
         a4=Action((2, 0), 1, service=0, type="exploit")
         s4, _, _ = env.step(a4)
-        s4_processed = self._process_state(s4)
-        #self.addExperience(s3_processed, a4, s4_processed)
+        s4_processed = self._process_state(s4,update_knowledge=True)
+        self.addExperience(s3_processed, a4, s4_processed)
 
         a5=Action((3, 0), 1)
         s5, _, _ = env.step(a5)
-        s5_processed = self._process_state(s5)
+        s5_processed = self._process_state(s5,update_knowledge=True)
         self.addExperience(s4_processed, a5, s5_processed)
 
         a6=Action((3, 0), 1, service=0, type="exploit")
         s6,_,_=env.step(a6)
-        s6_processed=self._process_state(s6)
-        self.addExperience(s5_processed,a4,s6_processed)
+        s6_processed=self._process_state(s6,update_knowledge=True)
+        self.addExperience(s5_processed,a6,s6_processed)
         print('here')
 
+        self.reset_topology_knowledge()
+
+        s0 =env.reset() #env._generate_initial_state()
+        s0_processed = self._process_state(s0)
         # a = Action((3, 0), 1)
         # new_s, _, _ = env.step(a)
         # new_s = self._process_state(new_s)
@@ -593,48 +661,75 @@ class DoormaxAgent(Agent):
     # new_s = self._process_state(new_s)
     # E=potentialEffect(s, new_s, ["(1, 0)","V0"])
     # apply(s, Action((1,0), 1,service=0, type="exploit"), E)
-    def tutorial(self):
-        curriculum=NetworkAttackSimulator.from_file('C:\\Users\\Julien\\NetworkAttackSimulator\\network_attack_simulator\\configs\\curriculum.yaml')
-        done=False
-        s = curriculum._generate_initial_state()
-        s = self._process_state(s)
+    def get_true_predictions(self):
+        color_dict = {"network": "blue", "machine": "green", "hacker": "red", "vuln": "orange", "adress": "yellow"}
+        modelGraphScanExposed=Graph()
+        modelGraphScanExposed.add_vertex("H",classe="hacker")
+        modelGraphScanExposed.add_vertex("N",classe="network")
+        modelGraphScanExposed.add_vertex("M",classe="machine")
+        modelGraphScanExposed.add_vertex("A",classe="adress")
+        modelGraphScanExposed.add_vertex("V",classe="vuln")
+        for v in modelGraphScanExposed.vs:
+            v["color"] =color_dict[c]
+        modelGraphScanExposed.add_edge("H","N",connected=True)
+        modelGraphScanExposed.add_edge("N","M",belongs_to=True)
+        modelGraphScanExposed.add_edge("A","M",has_adress=True)
+        modelGraphScanExposed.add_edge("M","V",is_vuln="Unknown")
 
-        while not done:
-            a = self.policy(s)  # policy(s)
-            print(a)
-            new_s, reward, done = curriculum.step(a)
-            # print(new_s)
-            new_s = self._process_state(new_s)
-            self.addExperience(s, a, new_s)
-            # self.showKnowledge()
-            self.updateValues(new_s, env)
-            if step == max_steps:
-                done = True
-            step += 1
-            ep_reward += reward
-            s = new_s
+        modelGraphScan=Graph()
+        modelGraphExploitExposed=Graph()
+        modelGraphScanExposed.add_vertex("H",classe="hacker")
+        modelGraphScanExposed.add_vertex("N",classe="network")
+        modelGraphScanExposed.add_vertex("M",classe="machine")
+        modelGraphScanExposed.add_vertex("A",classe="adress")
+        modelGraphScanExposed.add_vertex("V",classe="vuln")
+        for v in modelGraphScanExposed.vs:
+            v["color"] =color_dict[c]
+        modelGraphScanExposed.add_edge("H","N",connected=True)
+        modelGraphScanExposed.add_edge("N","M",belongs_to=True)
+        modelGraphScanExposed.add_edge("A","M",has_adress=True)
+        modelGraphScanExposed.add_edge("M","V",is_vuln=True)
+
+        modelGraphExploit=Graph()
+
     def train(self, env, num_episodes=100, max_steps=100, timeout=None, verbose=False, **kwargs):
         #self.test(env)
-        # layout = g.layout_kamada_kawai()
-        # plot(g, layout=layout, margin=10, vertex_label_dist=1,edge_label_dist=2)
-        #self.tutorial()
+        knowledgeUpdated=True
+        visualize=False
+        if kwargs['knowledge'] is not None:
+            self.knowledge=kwargs['knowledge']
+        if kwargs['visualize'] is not None:
+            visualize=kwargs['visualize']
+        episodes_times=[]
+        episodes_rewards=[]
+        episode_steps=[]
         for episode in range(num_episodes):
+            episode_start_time=time.time()
+            if not knowledgeUpdated:
+                break
             done = False
             step = 0
             ep_reward = 0
             max_steps = 100
-            s = env._generate_initial_state()
+            s = env.reset()
+            self.reset_topology_knowledge()
             print("================================================")
+            print("New episode")
+            print("================================================")
+
             print(s)
             s = self._process_state(s)
-
+            #show(s,visualize=True)
             while not done:
+                print("------------------------------------------------------")
+                print("New step")
+
+                start = time.time()
                 a = self.policy(s)  # policy(s)
-                print(a)
                 new_s, reward, done = env.step(a)
-                #print(new_s)
-                new_s = self._process_state(new_s)
-                self.addExperience(s, a, new_s)
+                new_s = self._process_state(new_s,update_knowledge=True)
+                show(new_s)
+                knowledgeUpdated=self.addExperience(s, a, new_s,visualize=visualize)
                 #self.showKnowledge()
                 self.updateValues(new_s,env)
                 if step == max_steps:
@@ -643,9 +738,15 @@ class DoormaxAgent(Agent):
                 ep_reward += reward
                 s = new_s
                 if done ==True:
-                    print("\n\n=============================================\n=============================================")
-                    print(ep_reward)
-
+                    print("\n\n=============================================\n Episode ended\n=============================================")
+                    print("Total reward:",ep_reward)
+                    episode_time=time.time()-episode_start_time
+                    episode_steps+=[step]
+                    episodes_rewards+=[ep_reward]
+                    episodes_times+=[episode_time]
+                elapsed = time.time() - start
+                print("Loop time:", elapsed)
+        return episode_steps,episodes_rewards,episodes_times
     def random_policy(self, s):
         candidates = []
         for a, _ in self.action_space:
@@ -661,16 +762,17 @@ class DoormaxAgent(Agent):
     def policy(self, s):
         candidates = {}
         values = {}
-        for a, classParam in self.action_space:
-            candidates[a] = {}
-            if a == "exploit":
+        for t, classParam in self.action_space:
+            candidates[t] = {}
+            if t == "exploit":
                 for addr in self.adress_space:
                     for serv in range(self.nService):
-                        candidates[a][(addr, serv)] = self.predictTransition(s, Action(addr, 1.0, service=serv,
-                                                                                       type="exploit"))
-            elif a == "scan":
+                        a=Action(addr, 1.0, service=serv,type="exploit")
+                        candidates[t][(addr, serv)] = self.predictTransition(s, a)
+            elif t == "scan":
                 for addr in self.adress_space:
-                    candidates[a][addr] = self.predictTransition(s, Action(addr, 1.0))
+                    a=Action(addr, 1.0)
+                    candidates[t][addr] = self.predictTransition(s, a)
         flatCandidates = {}
         for i in list(candidates.keys()):
             for j in list(candidates[i].keys()):
@@ -682,7 +784,9 @@ class DoormaxAgent(Agent):
                 values[k] = 1000
             else:
                 values[k] = self.V[rebuild_state(flatCandidates[k],self)]
-        print(values)
+        print('Values:')
+        for k in values.items():
+            print(k)
         max = np.amax(list(values.values()))
         final_candidates = []
         for k in list(values.keys()):
@@ -701,11 +805,11 @@ class DoormaxAgent(Agent):
     def __str__(self):
         pass
 
-    def _process_state(self, s):
+    def _process_state(self, s,update_knowledge=False):
         color_dict = {"network": "blue", "machine": "green", "hacker": "red", "vulnerability": "orange",
                       "adress": "yellow"}
         color_dict_edge = {True: "green", False: "red", "Unknown": "blue"}
-        g = Graph(directed=True)
+        g = Graph()
         adress_list = list(s._obs.keys())
         done = [False]
         g.add_vertex(name="H", classe="hacker")
@@ -739,39 +843,21 @@ class DoormaxAgent(Agent):
                     val = False
                 g.add_edge("M" + str(id), "V" + str(vuln), is_vuln=val)
             # recuperer topologie grace aux machines accessibles
-            for m in s._obs:
-                if s._obs[m]["compromised"]:
-                    serv, _ = m
-                    self.topology_knowledge[serv] = self.true_topology[serv]
-                    for a in range(len(self.topology_knowledge[serv])):
-                        if self.topology_knowledge[serv][a] == 1:
-                            self.topology_knowledge[a][serv] = 1
-                        else:
-                            self.topology_knowledge[a][serv] = 0
-            '''
-            if self.previous_reachable==[]:
-                if s._obs[adress]["reachable"]:
-                    #si premier etat, accessible=> exposed
-                    self.topology_knowledge[0][network]=1
-                    self.topology_knowledge[network][0]=1
-                    self.previous_reachable+=[network]
-                else:
-                    self.topology_knowledge[0][network] = 0
-                    self.topology_knowledge[network][0] = 0
-            else:
-                if self.last_compromised_net is not None:
-                    if s._obs[adress]["reachable"] and network not in self.previous_reachable:
-                        self.topology_knowledge[self.last_compromised_net][network] = 1
-                        self.topology_knowledge[network][self.last_compromised_net] = 1                    self.previous_reachable+=[network]
-                        self.previous_reachable+=[network]
-                    elif not s._obs[adress]["reachable"]:
-                        self.topology_knowledge[self.last_compromised_net][network] = 0
-                        self.topology_knowledge[network][self.last_compromised_net] = 0
-            '''
+            if update_knowledge:
+                for m in s._obs:
+                    if s._obs[m]["compromised"]:
+                        serv, _ = m
+                        self.topology_knowledge[serv] = self.true_topology[serv]
+                        for a in range(len(self.topology_knowledge[serv])):
+                            if self.topology_knowledge[serv][a] == 1:
+                                self.topology_knowledge[a][serv] = 1
+                            else:
+                                self.topology_knowledge[a][serv] = 0
+
         # TODO repasser en non observable
         self.topology_knowledge=self.true_topology
         for i in range(len(self.topology_knowledge)):
-            for j in range(len(self.topology_knowledge)):
+            for j in range(i,len(self.topology_knowledge)):
                 if self.topology_knowledge[i][j] == 0:
                     val = False
                 elif self.topology_knowledge[i][j] == 1:
@@ -798,58 +884,65 @@ class DoormaxAgent(Agent):
                     e["color"] = color_dict_edge[e.attributes()[att]]
         # layout = g.layout_kamada_kawai()
         # plot(g, layout=layout, margin=20, vertex_label_dist=1)
+        #show(g)
         return g
 
     def _choose_greedy_action(self, state, action_space, epsilon=0.05):
-        pass
+        return action_space.index(self.policy(state))
 
-    def addExperience(self, s, a, new_s):
+    def addExperience(self, s, a, new_s,visualize=False):
+        print("Adding experience for action",a)
+        knowledgeUpdated=False
         if equals(s, new_s):
-            # add s to failure for a
-            print('No effects for',a,': adding to failure')
-            self.addFailure(s, a)
+            #Si pas de changement dans l'etat: s est une condition d'echec pour a
+            print('No effects: adding to failure\n')
+            knowledgeUpdated=self.addFailure(deepcopy(s), a,visualize=visualize)
         else:
+            #Recuperer tous les effets potentiels qui transforment s en new_s
             potentialEffects = potentialEffect(s, new_s, get_parameters(a))
+            integrated=False
             for e in potentialEffects:
                 found = False
                 for pred in self.knowledge['pred'][a.type]:
                     if pred.effect == e:
                         found = True
-                        print("Effect already exists")
-                        if not equals(s,pred.model):
-                            if pred.updateModel(s,a)==False:
-                                print("Impossible to update model: adding a prediction")
-                                params = get_parameters(a)
-                                for i in range(len(params)):
-                                    params[i] = s.vs.select(name=params[i])[0].index
-                                self.knowledge['pred'][a.type] += [Prediction(s, e, params)]
-
-                        '''
-                        for c in pred[a][att][e.type]:
-                            if c != p and matches(p.model, c.model):
-                                #                                P.remove(pred[a][att][e.type])
-                                P[a][att][e.type] = False
-                        '''
-                        # TODO gerer overlapping models
+                        print("Effect",e," already exists")
+                        #Si l'effet est deja connu, on essaie de mettre a jour le modele
+                        if not matches(s,pred,a):
+                            integrated=pred.updateModel(s, a,visualize=visualize)
+                            knowledgeUpdated=integrated
+                        else:
+                            #Si la situation est deja prise en compte pour cet effet, passer a l'effet suivant
+                            print('Situation is already known, not updating')
+                            integrated=True
+                            break
                 if found == False:
-                    for c in self.knowledge['pred'][a.type]:
-                        if s.get_subisomorphisms_vf2(c.model, node_compat_fn=compat_node, edge_compat_fn=compat_edges):
-                            # P[a][att][e.type] = False
-                            print("issue: overlap")#si deux effets sous meme condition: overlap, pas pertinent de garder?
-                            # return pred,failure
+                    #si l'effet n'est pas connu, creer une prediction
                     params=get_parameters(a)
                     for i in range(len(params)):
                         params[i]=s.vs.select(name=params[i])[0].index
-                    print("New effect. Creating a prediction")
-                    self.knowledge['pred'][a.type] += [Prediction(s, e,params)]
-                    # if (len(pred[a][att][e.type])) > self.k:
+                    print("New effect. Creating a prediction:\n")
+                    print(e)
+                    self.knowledge['pred'][a.type] += [Prediction(deepcopy(s), e,params)]
+                    knowledgeUpdated=True
+                elif integrated==False:
+                    #Si l'effet est connu mais le model n'a pas pu etre mis a jour,
+                    # il s'agit d'un nouveau cas: on cree une prediction
+                    print("Impossible to update model: adding a prediction")
+                    params = get_parameters(a)
+                    for i in range(len(params)):
+                        params[i] = s.vs.select(name=params[i])[0].index
+                    self.knowledge['pred'][a.type] += [Prediction(deepcopy(s), e, params)]
+                    knowledgeUpdated=True
+        return knowledgeUpdated
+                    # TODO gerer overlapping models
                     # TODO gerer nombre predictions differentes
-                    # P.remove(pred[a][att][e.type])
-                    # P[a][att][e.type] = False
+
 
     def updateValues(self,current_s,env):
         actions = []
         new_V=defaultdict(lambda: 0)
+        #On commence par considerer toutes les actions possibles
         for a, _ in self.action_space:
             for add in self.adress_space:
                 for v in range(self.nService):
@@ -858,12 +951,8 @@ class DoormaxAgent(Agent):
                     else:
                         action = Action(add, 1)
                     actions += [action]
-        #temp=str(current_s.write_pickle())
-#        for state in self.lookUp
-        #if not temp in self.V.keys():
-        #    self.lookUp[temp]=current_s
-        #    self.V[temp]=0
         current_s_rebuilt=rebuild_state(current_s, self)
+        #Si l'etat courant n'est pas inclu dans la table des valeurs, le creer
         if current_s_rebuilt not in self.V.keys():
             self.V[current_s_rebuilt]=0
         for k in self.V.keys():
@@ -871,45 +960,61 @@ class DoormaxAgent(Agent):
                 correspondingState=self._process_state(k)
                 candidates = []
                 for a in actions:
+                    #On predit l'effet de toutes les actions
                     predicted=self.predictTransition(correspondingState, a)
                     if predicted != SMAX:
                         next_state=rebuild_state(predicted,self)
                     else:
                         next_state=self.keySMAX
                     if next_state in self.V.keys():
+                        #Si on a une valeur pour le prochain etat:
                         candidates += [self.getReward(correspondingState, a) + self.gamma * self.V[next_state]]
                     else:
+                        #sinon, la considerer nulle
                         candidates += [self.getReward(correspondingState, a)]
                 new_V[k] = np.amax(candidates)
                 new_V[self.keySMAX]=1000
         self.V=new_V
-            # pour chaque etat connu different de SMAX
+
     def predictTransition(self, s, a):
         for failure in self.knowledge["failure"][a.type]:
             if matches(s, failure,a):
+                #Si une des conditions d'echec est compatible avec l'etat courant
+                # et l'action envisagée, il n'y aura pas d'effet
                 return s
         E = []
         for pred in self.knowledge["pred"][a.type]:
+            #sinon, Parcourir les predictions, et ajouter les effets dont le modele
+            # est compatible avec la situation courante
             if matches(s, pred,a):
                 E += [pred.effect]
         if E == []:
+            #Si aucun effet, et la situation n'est pas une condition
+            # d'echec, il faut experimenter. Donc on retourne SMAX pour favoriser l'exploration
             return SMAX
         for ei in E:
             for ej in E:
                 if ej == ei:
                     continue
                 elif incompatible(s,a, ei, ej):
+                    #Si deux effets sont incompatible, il faut experimenter pour
+                    # eliminer l'effet erroné
                     return SMAX
-            # s_next = apply(s, E)
-            # return s_next
-
+        #on applique la liste d'effet pour predire l'etat apres l'action
         s_next = apply(s,a, E)
         return s_next
 
-    def addFailure(self, s, a):
+    def addFailure(self, s, a,visualize=False):
         for failure in self.knowledge['failure'][a.type]:
             if matches(s,failure,a):# or equals(s, failure.model):
-                return
+                #si les representations d'echecs comporte deja un model compatible avec l'etat, rien a faire
+                return False
+        for failure in self.knowledge['failure'][a.type]:
+            if failure.updateModel(s,a,visualize=visualize):
+            #sinon essayer d'update une representation
+                return True
+        #si aucune des representation n'a pu etre mise a jour, il s'agit d'un nouveau cas
+        #Il faut creer une nouvelle prediction
         params = get_parameters(a)
         for i in range(len(params)):
             params[i] = s.vs.select(name=params[i])[0].index

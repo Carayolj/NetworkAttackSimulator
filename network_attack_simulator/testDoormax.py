@@ -90,21 +90,38 @@ def main():
                                                  restrictiveness=3, exploit_probs=0.7,
                                                  seed=2)
         agent_scenario = "default"
+    train_args = {}
+    train_args["visualize_policy"] = num_episodes // 1
+    train_args['knowledge']=None
+    train_args['visualize']=None
+
+    #Tutoriel
+    TutoEnv = NetworkAttackSimulator.from_params(1, 1, simple=True)
+    TutoAgent= get_agent(agent_name, agent_scenario, TutoEnv)
+    TutoAgent.train(TutoEnv, num_episodes, max_steps, timeout,
+                verbose=True, **train_args)
+    train_args['knowledge']=TutoAgent.knowledge
+
+    TutoEnv2 = NetworkAttackSimulator.from_params(2, 1, simple=True)
+    TutoAgent2 = get_agent(agent_name, agent_scenario, TutoEnv2)
+    TutoAgent2.train(TutoEnv2, num_episodes, max_steps, timeout,
+                    verbose=True, **train_args)
 
     agent = get_agent(agent_name, agent_scenario, env)
+    train_args['knowledge']=TutoAgent2.knowledge
     if agent is None:
         return 1
 
     print("Solving {} scenario using {} agent".format(scenario_name, agent_name))
 
-    train_args = {}
-    train_args["visualize_policy"] = num_episodes // 1
+    train_args['visualize']=True
+
     ep_tsteps, ep_rews, ep_times = agent.train(env, num_episodes, max_steps, timeout,
                                                verbose=True, **train_args)
 
-    #gen_episode = agent.generate_episode(env, max_steps)
-    #env.render_episode(gen_episode)
-    #plot_results(ep_tsteps, ep_rews, ep_times, env)
+    gen_episode = agent.generate_episode(env, max_steps)
+    env.render_episode(gen_episode)
+    plot_results(ep_tsteps, ep_rews, ep_times, env)
 
 
 if __name__ == "__main__":

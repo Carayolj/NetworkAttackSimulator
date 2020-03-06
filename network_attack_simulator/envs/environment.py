@@ -83,7 +83,7 @@ class NetworkAttackSimulator(object):
                     exploit_probs='mixed',
                     uniform=False, alpha_H=2.0, alpha_V=2.0, lambda_V=1.0,
                     restrictiveness=5,
-                    seed=1):
+                    seed=1,simple=False):
         """
         Construct a new Cyber Attack Simulator Environment from a auto generated network based on
         number of machines and services.
@@ -116,7 +116,7 @@ class NetworkAttackSimulator(object):
                                            r_sensitive, r_user,
                                            exploit_cost, exploit_probs,
                                            uniform, alpha_H, alpha_V, lambda_V,
-                                           restrictiveness, seed)
+                                           restrictiveness, seed,simple)
         return cls(config, scan_cost, seed)
 
     def reset(self):

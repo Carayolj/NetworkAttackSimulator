@@ -18,7 +18,7 @@ def generate_config(num_machines, num_services,
                     r_sensitive=10, r_user=10,
                     exploit_cost=1, exploit_probs=1.0,
                     uniform=False, alpha_H=2.0, alpha_V=2.0, lambda_V=1.0,
-                    restrictiveness=5, seed=1):
+                    restrictiveness=5, seed=1,simple=False):
     """
     Generate the network configuration based on standard formula.
 
@@ -77,13 +77,14 @@ def generate_config(num_machines, num_services,
         dict config : network configuration as dictionary
     """
     assert 0 < num_services
-    assert 2 < num_machines
+    assert 0 < num_machines
+    #TODO reset nb machine min a 3?
     assert 0 < r_sensitive and 0 < r_user
     assert 0 < alpha_H and 0 < alpha_V and 0 < lambda_V
     assert 0 < restrictiveness
     np.random.seed(seed)
     config = {}
-    subnets = generate_subnets(num_machines)
+    subnets = generate_subnets(num_machines,simple)
     config["subnets"] = subnets
     config["topology"] = generate_topology(subnets)
     config["num_services"] = num_services
@@ -99,7 +100,7 @@ def generate_config(num_machines, num_services,
     return config
 
 
-def generate_subnets(num_machines):
+def generate_subnets(num_machines,simple=False):
     """
     Generate list of subnet sizes
 
@@ -109,13 +110,16 @@ def generate_subnets(num_machines):
     Returns:
         list subnets : list of number of machines in each subnet
     """
-    # Internet (0), DMZ (1) and sensitive (2) subnets both contain 1 machine
-    subnets = [1, 1, 1]
-    # remainder of machines go into user subnet tree
-    num_full_user_subnets = ((num_machines - 2) // USER_SUBNET_SIZE)
-    subnets += [USER_SUBNET_SIZE] * num_full_user_subnets
-    if ((num_machines - 2) % USER_SUBNET_SIZE) != 0:
-        subnets.append((num_machines - 2) % USER_SUBNET_SIZE)
+    if not simple:
+        # Internet (0), DMZ (1) and sensitive (2) subnets both contain 1 machine
+        subnets = [1, 1, 1]
+        # remainder of machines go into user subnet tree
+        num_full_user_subnets = ((num_machines - 2) // USER_SUBNET_SIZE)
+        subnets += [USER_SUBNET_SIZE] * num_full_user_subnets
+        if ((num_machines - 2) % USER_SUBNET_SIZE) != 0:
+            subnets.append((num_machines - 2) % USER_SUBNET_SIZE)
+    else:
+        subnets=[1]+[1]*num_machines
     return subnets
 
 
@@ -135,30 +139,45 @@ def generate_topology(subnets):
     topology = np.zeros((num_subnets, num_subnets))
     # DMZ subnet is connected to sensitive and first user subnet and also
     # to internet
-    for row in range(USER + 1):
-        for col in range(USER + 1):
-            if row == INTERNET and col > DMZ:
-                continue
-            if row > DMZ and col == INTERNET:
-                continue
-            topology[row][col] = 1
-    if num_subnets == USER + 1:
-        return topology
-    # all other subnets are part of user binary tree
-    for row in range(USER, num_subnets):
-        # subnet connected to itself
-        topology[row][row] = 1
-        # position in tree
-        pos = row - USER
-        if pos > 0:
-            parent = ((pos - 1) // 2) + 3
-            topology[row][parent] = 1
-        child_left = ((2 * pos) + 1) + 3
-        child_right = ((2 * pos) + 2) + 3
-        if child_left < num_subnets:
-            topology[row][child_left] = 1
-        if child_right < num_subnets:
-            topology[row][child_right] = 1
+    if num_subnets>3:
+        for row in range(USER + 1):
+            for col in range(USER + 1):
+                if row == INTERNET and col > DMZ:
+                    continue
+                if row > DMZ and col == INTERNET:
+                    continue
+                topology[row][col] = 1
+        if num_subnets == USER + 1:
+            return topology
+        # all other subnets are part of user binary tree
+        for row in range(USER, num_subnets):
+            # subnet connected to itself
+            topology[row][row] = 1
+            # position in tree
+            pos = row - USER
+            if pos > 0:
+                parent = ((pos - 1) // 2) + 3
+                topology[row][parent] = 1
+            child_left = ((2 * pos) + 1) + 3
+            child_right = ((2 * pos) + 2) + 3
+            if child_left < num_subnets:
+                topology[row][child_left] = 1
+            if child_right < num_subnets:
+                topology[row][child_right] = 1
+    elif num_subnets==2:
+        topology[0][0]=1
+        topology[0][1]=1
+        topology[1][0]=1
+        topology[1][1]=1
+    elif num_subnets==3:
+        topology[0][0] = 1
+        topology[0][1] = 1
+        topology[1][0] = 1
+        topology[1][1] = 1
+        topology[1][2] = 1
+        topology[2][1] = 1
+        topology[2][2] = 1
+
     return topology
 
 
@@ -174,11 +193,22 @@ def generate_sensitive_machines(subnets, r_sensitive, r_user):
     Returns:
         list sensitive_machines : list of [subnetID, machineID, value] lists
     """
-    sensitive_machines = []
-    # first sensitive machine is first machine in SENSITIVE network
-    sensitive_machines.append([SENSITIVE, 0, r_sensitive])
-    # second sensitive machine is last machine on last USER network
-    sensitive_machines.append([len(subnets) - 1, subnets[-1] - 1, r_user])
+    if len(subnets)>2:
+        sensitive_machines = []
+        # first sensitive machine is first machine in SENSITIVE network
+        sensitive_machines.append([SENSITIVE, 0, r_sensitive])
+        # second sensitive machine is last machine on last USER network
+        sensitive_machines.append([len(subnets) - 1, subnets[-1] - 1, r_user])
+    elif len(subnets)==2:
+        sensitive_machines = []
+        # first sensitive machine is first machine in SENSITIVE network
+        sensitive_machines.append([1, 0, r_sensitive])
+    elif len(subnets)==3:
+        sensitive_machines = []
+        # first sensitive machine is first machine in SENSITIVE network
+        sensitive_machines.append([1, 0, r_sensitive])
+        sensitive_machines.append([2, 0, r_sensitive])
+
     return sensitive_machines
 
 
