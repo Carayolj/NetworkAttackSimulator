@@ -67,13 +67,20 @@ class State(object):
             m_i = self._get_machine_index(m)
             for k, v in m_state.items():
                 # int(v) since compromised and reachable are bools in map
+                if v==-1:
+                    #si vuln=-1: pour doormax. N'utilise pas de vecteur
+                    #TODO fixer  pourquoi ca plante(pas d'indice pour service inexistant)
+                    return vector
                 if k == COMPROMISED_KEY:
                     vector[m_i + COMPROMISED] = int(v)
                 elif k == REACHABLE_KEY:
                     vector[m_i + REACHABLE] = int(v)
                 else:
                     srv_i = self._get_service_index(k)
-                    vector[m_i + srv_i] = v
+                    try:
+                        vector[m_i + srv_i] = v
+                    except:
+                        print('best debuggin method')
         return vector
 
     def _get_machine_index(self, m):
@@ -245,7 +252,7 @@ class State(object):
             State initial_state : the initial state of the environment
         """
         obs = OrderedDict()
-
+        State.service_indices={}
         for srv, i in exploitable_services.items():
             State.service_indices[srv] = i
 

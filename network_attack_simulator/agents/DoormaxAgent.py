@@ -58,10 +58,12 @@ def reachable(agent,s, addr):
     target_network, _ =addr
     addr = str(addr)
     if agent.true_topology[0][target_network] == 1:
-        reachable = True
+        return True
     compromised_edge = s.es.select(compromised_eq=True)
-    compromised = [s.vs[x.target] for x in compromised_edge]
+    compromised = [s.vs[x.source] for x in compromised_edge]
     for m in compromised:
+        if m.attributes()['name'] in ['H','C']:
+            continue
         for e in s.incident(m, mode=ALL):
             if s.es[e].attributes()['has_adress']==True:
                 m_adress=s.vs[s.es[e].target]
@@ -93,6 +95,7 @@ def rebuild_state(state,agent):
 class Prediction:
     def __init__(self, model, effect,parameter):
         self.model = model
+        self.old_models=[]
         self.effect = effect
         self.parameter=parameter #tableau: adresse ou adresse,service
         self.readableParams=[self.model.vs[i]['name'] for i in parameter]
@@ -126,16 +129,28 @@ class Prediction:
             #print("=================================================\n\n")
             for edge in self.model.es:
                 #Pour chaque arc, trouver l'arc correspondant
-                correspondingEdge=s.es[s.es.select(_between=(set([c[edge.source]]),set([c[edge.target]]))).indices[0]]
+                try:
+                    correspondingEdge=s.es[s.es.select(_between=(set([c[edge.source]]),set([c[edge.target]]))).indices[0]]
+                except:
+                    print('dfsdf')
                 for att in correspondingEdge.attributes():
                     if edge[att]!=correspondingEdge[att]:
                         #print("Old value for relation",att," between",self.model.vs[edge.source].attributes()['name'],'and',self.model.vs[edge.target].attributes()['name'],':',edge[att])
                         #print("New value for corresponding edge between",s.vs[c[edge.source]].attributes()['name'],'and',s.vs[c[edge.target]].attributes()['name'],':',correspondingEdge[att],"\n")
                         to_delete+=[edge]
                         break
+            #TODO gerer differences si plusieurs arcs different mais de la meme facon
             if len(to_delete)>1:
-                #si plus d'une difference, pas le bon candidat
-                continue
+                #si plus d'une difference, et pas la meme relation:  pas le bon candidat
+                att = to_delete[0].attributes()['name']
+                wrongCandidate=False
+                for e in to_delete[1:]:
+                    if att!=e.attributes()['name']:
+                        wrongCandidate=True
+                        break
+                if wrongCandidate:
+                    #passer au candidat suivant
+                    continue
             for i in new.vs.indices:
                 #Pour la visualisation changer le nom des noeuds par les
                 # deux noms des noeuds dans le modele et la situation
@@ -153,15 +168,11 @@ class Prediction:
             # Si un noeud est isolé, les relations avec celui ci n'importent pas, et il
             # n'influe pas dans l'issue d'une action
             for clust in clusters:
-                #Un cluster est valide si H, et les parametres, sont inclus, et si sa taill
+                #Un cluster est valide si H(ou une machine compromise), et les parametres, sont inclus, et si sa taill
                 wrongCluster=False
                 parametersChanged=False
-                namesClust=[new.vs[i].attributes()['name'] for i in clust]
-                for p in self.readableParams+['H']:
-                    if p not in namesClust:
-                        wrongCluster=True
-                if len(clust)<len(new.vs):
-                    parametersChanged=True
+
+                wrongCluster,parametersChanged=self.checkCluster(s,new,clust)
                 if not wrongCluster:
                     new=new.subgraph(clust)
                     if parametersChanged:
@@ -174,33 +185,77 @@ class Prediction:
                                 print('dsd')
                         break
             #Verifier que H est connecté au reste du reseau
-            if not wrongCluster and 'H' in new.vs[:]['name']:
-                for e in new.es.select(connected=True, _from=0):
-                    if e.target != e.source:# si il ne s'agit pas de l'arc reliant H a lui-meme
-                        if self.effect is None:
-                            t='failure '+a.type+ str(a.target)
-                        else:
-                            t='pred' + a.type
-                        if a.type=='exploit':
-                            t+=str(a.service)
-                        print('*********************Model Update for',t, '***************************')
-                        for edge in to_delete:
-                            att=edge.attributes()['name']
-                            correspondingEdge = s.es[s.es.select(_between=(set([c[edge.source]]), set([c[edge.target]]))).indices[0]]
-                            print("Old value for relation",att," between",self.model.vs[edge.source].attributes()['name'],'and',self.model.vs[edge.target].attributes()['name'],':',edge[att])
-                            print("New value for corresponding edge between",s.vs[c[edge.source]].attributes()['name'],'and',s.vs[c[edge.target]].attributes()['name'],':',correspondingEdge[att],"\n")
-                        show(self.model,visualize=visualize)
-                        show(new,visualize=visualize)
-                        self.model=new
-                        if parametersChanged:
-                            print('Old:',self.readableParams)
-                            print('New:',[self.model.vs[i]['name'] for i in new_params])
-                            self.parameter=new_params
-                            self.readableParams = [self.model.vs[i]['name'] for i in self.parameter]
-                        return True
+            if not wrongCluster:
+            #    for e in new.es.select(connected=True, _from=0):
+            #        if e.target != e.source:# si il ne s'agit pas de l'arc reliant H a lui-meme
+                if self.effect is None:
+                    t='failure '+a.type+ str(a.target)
+                else:
+                    t='pred' + a.type
+                if a.type=='exploit':
+                    t+=str(a.service)
+                print('*********************Model Update for',t, '***************************')
+                for edge in to_delete:
+                    att=edge.attributes()['name']
+                    correspondingEdge = s.es[s.es.select(_between=(set([c[edge.source]]), set([c[edge.target]]))).indices[0]]
+                    print("Old value for relation",att," between",self.model.vs[edge.source].attributes()['name'],'and',self.model.vs[edge.target].attributes()['name'],':',edge[att])
+                    print("New value for corresponding edge between",s.vs[c[edge.source]].attributes()['name'],'and',s.vs[c[edge.target]].attributes()['name'],':',correspondingEdge[att],"\n")
+                show(self.model,visualize=visualize)
+                show(s,visualize)
+                show(new,visualize=visualize)
+                self.old_models+=[(self.model,s,a,self.readableParams,new)]
+                self.model=new
+                if parametersChanged:
+                    print('Old:',self.readableParams)
+                    print('New:',[self.model.vs[i]['name'] for i in new_params])
+                    self.parameter=new_params
+                    self.readableParams = [self.model.vs[i]['name'] for i in self.parameter]
+                return True
         return False
             #pas la meme cause:
         # self.model.get_isomorphism_vf2()
+
+    def checkCluster(self, s, new, clust):
+        namesClust = [new.vs[i].attributes()['name'] for i in clust]
+        targetMachine = new.vs[new.es[new.incident(self.parameter[0], mode=ALL)[0]].source].attributes()['name']
+        compromised = [s.vs[x.source].attributes()['name'] for x in s.es.select(compromised_eq=True)]
+        weights=[]
+        for name in self.readableParams:
+            if name not in namesClust:
+                return True,True
+        vuln=False
+        for n in namesClust:
+            if "V" in n:
+                vuln=True
+        if not vuln:
+            return True,True
+        for e in new.es:
+            if e.attributes()['name'] in ['belongs_to','connected']:
+                weights+=[0]
+            else:
+                weights+=[1000]
+        for c in compromised:
+            try:
+                sub = new.get_shortest_paths(targetMachine, c,weights=weights, mode=ALL)
+            except:
+                raise
+
+            sub=s.subgraph(sub[0])
+            #show(sub, True)
+            for e in sub.es:
+                atts=e.attributes()
+                if atts['name'] not in ['belongs_to','connected']:
+                    wrongCluster=True
+                    break
+                else:
+                    wrongCluster=False
+        if len(clust) < len(new.vs):
+            parametersChanged = True
+        else:
+            parametersChanged = False
+        return wrongCluster,parametersChanged
+
+
 class Effect:
     def __init__(self, objectSource, objectDest, relation, effectList):  # relation,type,value):
         self.oSrc = objectSource
@@ -326,9 +381,19 @@ def compat_node(g1, g2, n1, n2):
         #for att in node1.attributes():
         #    if not att in ['name', 'label']:
         if node1.attributes()["classe"] != node2.attributes()["classe"]:
-            return False
+            if node1.attributes()["classe"] == 'hacker' and node2.attributes()["classe"]=='machine':
+                for e in g2.incident(node2):
+                    if g2.es[e].attributes()['name']=='compromised' and g2.es[e].attributes()['compromised']==True:
+                        return True
+            elif node2.attributes()["classe"] == 'hacker' and node1.attributes()["classe"]=='machine':
+                for e in g1.incident(node1):
+                    if g1.es[e].attributes()['name']=='compromised' and g1.es[e].attributes()['compromised']==True:
+                        return True
+            else:
+                return False
     except:
         print("not the same attributes between ", node1, " and ", node2)
+        raise
         return False
     return True
 
@@ -514,7 +579,7 @@ def matches(situation, pred,a):
                     candidates.remove(c)
                     break
             except:
-                print("bordel")
+                print("probleme")
                 raise
     if len(candidates)>=1:
         return True
@@ -541,7 +606,8 @@ class DoormaxAgent(Agent):
         self.adress_space = adress_space
         self.true_topology = topology
         self.nService = nService
-        self.V = defaultdict(lambda: 0)
+        self.new_state_value=0
+        self.V = defaultdict(lambda: self.new_state_value)
         obs = OrderedDict()
         for adress in self.adress_space:
             machine_state = OrderedDict()
@@ -700,6 +766,8 @@ class DoormaxAgent(Agent):
             self.knowledge=kwargs['knowledge']
         if kwargs['visualize'] is not None:
             visualize=kwargs['visualize']
+        if kwargs['training'] is not True:
+            self.new_state_value=2000
         episodes_times=[]
         episodes_rewards=[]
         episode_steps=[]
@@ -711,25 +779,36 @@ class DoormaxAgent(Agent):
             step = 0
             ep_reward = 0
             max_steps = 100
+            env._generate_initial_state()
             s = env.reset()
             self.reset_topology_knowledge()
             print("================================================")
             print("New episode")
             print("================================================")
 
-            print(s)
+#            print(s)
             s = self._process_state(s)
             #show(s,visualize=True)
+            actions_taken=[]
             while not done:
                 print("------------------------------------------------------")
                 print("New step")
 
                 start = time.time()
                 a = self.policy(s)  # policy(s)
+                policy_time=time.time()
+                print("policy time:",policy_time-start)
                 new_s, reward, done = env.step(a)
                 new_s = self._process_state(new_s,update_knowledge=True)
-                show(new_s)
-                knowledgeUpdated=self.addExperience(s, a, new_s,visualize=visualize)
+                show(new_s,visualize)
+                if kwargs['training']:
+                    knowledgeUpdated=self.addExperience(s, a, new_s,visualize=visualize)
+                else:
+                    actions_taken+=[a]
+                    for b in actions_taken:
+                        print(b)
+                add_experience_time=time.time()
+                print("Experience time:",add_experience_time-policy_time)
                 #self.showKnowledge()
                 self.updateValues(new_s,env)
                 if step == max_steps:
@@ -759,7 +838,7 @@ class DoormaxAgent(Agent):
 
         return np.random.choice(candidates)
 
-    def policy(self, s):
+    def policy(self, s,training=True):
         candidates = {}
         values = {}
         for t, classParam in self.action_space:
@@ -807,12 +886,17 @@ class DoormaxAgent(Agent):
 
     def _process_state(self, s,update_knowledge=False):
         color_dict = {"network": "blue", "machine": "green", "hacker": "red", "vulnerability": "orange",
-                      "adress": "yellow"}
+                      "adress": "yellow",'compromission':'pink'}
         color_dict_edge = {True: "green", False: "red", "Unknown": "blue"}
         g = Graph()
         adress_list = list(s._obs.keys())
         done = [False]
         g.add_vertex(name="H", classe="hacker")
+        g.add_vertex(name="NH", classe="network")
+        g.add_edge("H", "NH", belongs_to=True)
+        g.add_vertex(name="C", classe="compromission")
+        g.add_edge("H", "C", compromised=True)
+
         for i in range(len(s.service_indices)):
             g.add_vertex(name="V" + str(i), classe="vulnerability")
             # create a node for each vulnerability
@@ -830,9 +914,9 @@ class DoormaxAgent(Agent):
             # g.add_edge(str(adress),"M" + str(id), is_adress_of=True)
 
             if s._obs[adress]["compromised"]:
-                g.add_edge("M" + str(id), "M" + str(id), compromised=True)
+                g.add_edge("M" + str(id), "C", compromised=True)
             else:
-                g.add_edge("M" + str(id), "M" + str(id), compromised=False)
+                g.add_edge("M" + str(id), "C", compromised=False)
 
             for vuln in list(s._obs[adress].keys())[2:]:
                 if s._obs[adress][vuln] == 0:
@@ -866,11 +950,11 @@ class DoormaxAgent(Agent):
                     val = "Unknown"
                     # TODO change by Tribool
                 if i == 0:
-                    source = "H"
+                    source = "NH"
                 else:
                     source = "N" + str(i)
                 if j == 0:
-                    dest = "H"
+                    dest = "NH"
                 else:
                     dest = "N" + str(j)
                 g.add_edge(source, dest, connected=val)
@@ -921,8 +1005,7 @@ class DoormaxAgent(Agent):
                     params=get_parameters(a)
                     for i in range(len(params)):
                         params[i]=s.vs.select(name=params[i])[0].index
-                    print("New effect. Creating a prediction:\n")
-                    print(e)
+                    print("New effect. Creating a prediction for\n",e,":")
                     self.knowledge['pred'][a.type] += [Prediction(deepcopy(s), e,params)]
                     knowledgeUpdated=True
                 elif integrated==False:
@@ -941,7 +1024,7 @@ class DoormaxAgent(Agent):
 
     def updateValues(self,current_s,env):
         actions = []
-        new_V=defaultdict(lambda: 0)
+        new_V=defaultdict(lambda: self.new_state_value)
         #On commence par considerer toutes les actions possibles
         for a, _ in self.action_space:
             for add in self.adress_space:

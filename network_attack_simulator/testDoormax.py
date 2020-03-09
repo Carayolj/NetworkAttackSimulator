@@ -2,6 +2,8 @@ from network_attack_simulator.envs.environment import NetworkAttackSimulator
 from network_attack_simulator.experiments.experiment_util import get_scenario
 from network_attack_simulator.experiments.experiment_util import get_agent
 from network_attack_simulator.experiments.experiment_util import is_valid_agent
+from network_attack_simulator.agents.DoormaxAgent import *
+
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
@@ -90,10 +92,12 @@ def main():
                                                  restrictiveness=3, exploit_probs=0.7,
                                                  seed=2)
         agent_scenario = "default"
+
     train_args = {}
     train_args["visualize_policy"] = num_episodes // 1
     train_args['knowledge']=None
-    train_args['visualize']=None
+    train_args['visualize']=True
+    train_args['training']=True
 
     #Tutoriel
     TutoEnv = NetworkAttackSimulator.from_params(1, 1, simple=True)
@@ -101,7 +105,11 @@ def main():
     TutoAgent.train(TutoEnv, num_episodes, max_steps, timeout,
                 verbose=True, **train_args)
     train_args['knowledge']=TutoAgent.knowledge
-
+    #TutoEnv = NetworkAttackSimulator.from_params(1, 2, simple=True)
+    #TutoAgent= get_agent(agent_name, agent_scenario, TutoEnv)
+    #TutoAgent.train(TutoEnv, num_episodes, max_steps, timeout,
+    #                verbose=True, **train_args)
+    train_args['knowledge']=TutoAgent.knowledge
     TutoEnv2 = NetworkAttackSimulator.from_params(2, 1, simple=True)
     TutoAgent2 = get_agent(agent_name, agent_scenario, TutoEnv2)
     TutoAgent2.train(TutoEnv2, num_episodes, max_steps, timeout,
@@ -109,13 +117,17 @@ def main():
 
     agent = get_agent(agent_name, agent_scenario, env)
     train_args['knowledge']=TutoAgent2.knowledge
+    #TutoEnv3 = NetworkAttackSimulator.from_params(10, 1, simple=True)
+    #TutoAgent3 = get_agent(agent_name, agent_scenario, TutoEnv2)
+    #TutoAgent3.train(TutoEnv3, num_episodes, max_steps, timeout,
+    #                verbose=True, **train_args)
     if agent is None:
         return 1
 
     print("Solving {} scenario using {} agent".format(scenario_name, agent_name))
 
     train_args['visualize']=True
-
+    train_args['training']=False
     ep_tsteps, ep_rews, ep_times = agent.train(env, num_episodes, max_steps, timeout,
                                                verbose=True, **train_args)
 
