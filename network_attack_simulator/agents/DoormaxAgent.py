@@ -11,6 +11,9 @@ from network_attack_simulator.envs.action import Action
 from network_attack_simulator.envs.state import State
 from network_attack_simulator.envs.environment import NetworkAttackSimulator
 from network_attack_simulator.envs.generator import  generate_config
+from igraph import Graph, Plot
+from igraph.drawing.text import TextDrawer
+import cairo
 
 effect_types = ["assignement", "discovery"]
 SMAX = Graph()
@@ -124,6 +127,7 @@ class Prediction:
             #for n in c:
                 #print(s.vs[c.index(n)].attributes()['name'],"replaced by",s.vs[n].attributes()['name'])
         for c in candidates:
+            #TODO acquire differences for all candidates
             new = deepcopy(self.model)
             to_delete=[]
             #print("=================================================\n\n")
@@ -159,7 +163,7 @@ class Prediction:
             for e in to_delete:
                 new.es[e.index]['width']=4
                 new.es[e.index]['color']='black'
-            show(new)
+            show(new,True,"Differences")
 
             new.delete_edges(to_delete)
             #show(self.model)
@@ -183,7 +187,7 @@ class Prediction:
                                 new_params+=[new.vs.select(name_eq=p).indices[0]]
                             except:
                                 print('dsd')
-                        break
+                    break
             #Verifier que H est connecté au reste du reseau
             if not wrongCluster:
             #    for e in new.es.select(connected=True, _from=0):
@@ -279,7 +283,7 @@ def multiIso(g1s,g2s):
         if not g1s[i].subisomorphic_vf2(g2s[i], node_compat_fn=compat_node, edge_compat_fn=compat_edges):
             return False
     return True
-def show(g,visualize=False):
+def show(g,visualize=False,title=None):
     if not visualize:
         return
     if isinstance(g, Graph):
@@ -287,7 +291,14 @@ def show(g,visualize=False):
             if e.attributes()['compromised']==True or e.attributes()['is_vuln']==True:
                 e['color']='green'
         layout = g.layout_kamada_kawai()
-        plot(g, layout=layout, margin=100, vertex_label_dist=1, edge_label_dist=2)
+        drawing = plot(g, layout=layout, margin=100, vertex_label_dist=1, edge_label_dist=2)
+        ctx = cairo.Context(drawing.surface)
+        ctx.set_font_size(36)
+        drawer = TextDrawer(ctx, title, halign=TextDrawer.CENTER)
+        drawer.draw_at(0, 600, width=600)
+        # drawing.redraw()
+        drawing.show()
+        #plot(g, layout=layout, margin=100, vertex_label_dist=1, edge_label_dist=2)
     elif isinstance(g, list):
         for graf in g:
             layout = graf.layout_kamada_kawai()
@@ -800,7 +811,7 @@ class DoormaxAgent(Agent):
                 print("policy time:",policy_time-start)
                 new_s, reward, done = env.step(a)
                 new_s = self._process_state(new_s,update_knowledge=True)
-                show(new_s,visualize)
+                show(new_s,visualize,'current state')
                 if kwargs['training']:
                     knowledgeUpdated=self.addExperience(s, a, new_s,visualize=visualize)
                 else:

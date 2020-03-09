@@ -96,7 +96,7 @@ def main():
     train_args = {}
     train_args["visualize_policy"] = num_episodes // 1
     train_args['knowledge']=None
-    train_args['visualize']=True
+    train_args['visualize']=False
     train_args['training']=True
 
     #Tutoriel
