@@ -98,6 +98,8 @@ def main():
     train_args['knowledge']=None
     train_args['visualize']=False
     train_args['training']=True
+    train_args['experience']=None
+
 
     #Tutoriel
     TutoEnv = NetworkAttackSimulator.from_params(1, 1, simple=True)
@@ -105,6 +107,8 @@ def main():
     TutoAgent.train(TutoEnv, num_episodes, max_steps, timeout,
                 verbose=True, **train_args)
     train_args['knowledge']=TutoAgent.knowledge
+    train_args['experience']=TutoAgent.experience
+
     #TutoEnv = NetworkAttackSimulator.from_params(1, 2, simple=True)
     #TutoAgent= get_agent(agent_name, agent_scenario, TutoEnv)
     #TutoAgent.train(TutoEnv, num_episodes, max_steps, timeout,
@@ -117,6 +121,7 @@ def main():
 
     agent = get_agent(agent_name, agent_scenario, env)
     train_args['knowledge']=TutoAgent2.knowledge
+    train_args['experience']=TutoAgent2.experience
     #TutoEnv3 = NetworkAttackSimulator.from_params(10, 1, simple=True)
     #TutoAgent3 = get_agent(agent_name, agent_scenario, TutoEnv2)
     #TutoAgent3.train(TutoEnv3, num_episodes, max_steps, timeout,
@@ -126,7 +131,7 @@ def main():
 
     print("Solving {} scenario using {} agent".format(scenario_name, agent_name))
 
-    train_args['visualize']=True
+    train_args['visualize']=False
     train_args['training']=False
     ep_tsteps, ep_rews, ep_times = agent.train(env, num_episodes, max_steps, timeout,
                                                verbose=True, **train_args)
