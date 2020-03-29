@@ -220,17 +220,17 @@ class DoormaxAgent(Agent):
                 print("New step")
 
                 start = time.time()
-                a,v = self.policy(s)  # policy(s)
+                a = self.policy(s)  # policy(s)
                 policy_time = time.time()
-                print("policy time:", policy_time - start)
+                print("Time to compute policy:", policy_time - start)
                 new_s, reward, done = env.step(a)
                 new_s = self._process_state(new_s, update_knowledge=True)
-                show(new_s, visualize, 'current state')
+                strAc=str(a.type)+' '+str(a.target)
+                if a.type=='exploit':
+                    strAc+=' '+str(a.service)
+                show(new_s, visualize, 'current state (t='+str(step)+')\n'+"Previous action: "+strAc)
                 if kwargs['training']:
-                    if v == self.valueSMAX:
-                        knowledgeUpdated = self.addExperience(s, a, new_s, visualize=visualize)
-                    else:
-                        knowledgeUpdated=False
+                    knowledgeUpdated = self.addExperience(s, a, new_s, visualize=visualize)
                 else:
                     actions_taken += [a]
                     for b in actions_taken:
@@ -238,12 +238,12 @@ class DoormaxAgent(Agent):
                     if equals(s,new_s):
                         print('faaaaaaaaaaaaaaaaaaaaaiiiil')
                 add_experience_time = time.time()
-                print("Experience time:", add_experience_time - policy_time)
+                print("Time to add experience:", add_experience_time - policy_time)
                 # self.showKnowledge()
                 self.experience += [(s, a, new_s)]
                 self.updateValues(new_s, env)
                 value_time = time.time()
-                print("Value update time:", value_time- add_experience_time)
+                print("Time to udate state values:", value_time- add_experience_time)
                 if step == max_steps:
                     done = True
                 step += 1
@@ -298,9 +298,23 @@ class DoormaxAgent(Agent):
                 values[k] = self.valueSMAX
             else:
                 values[k] = self.V[rebuild_state(flatCandidates[k], self)]
-        print('Values:')
-        for k in values.items():
-            print(k)
+        print('_________________________________________________\nValues:')
+        for (ty,arg),(val) in values.items():
+            if val==self.new_state_value:
+                prompt='a known effect'
+            elif val==self.valueSMAX:
+                prompt='an unknown effect'
+            elif val==-1000:
+                prompt='no effect'
+            else:
+                prompt='a known effect, but I can\'t predict for the following state'
+            if ty=='scan':
+                addr=arg
+                print("Scanning adress",addr,"will have",prompt)
+            elif ty=='exploit':
+                addr,serv=arg
+                print("Exploiting service ",serv," on adress ",addr," will have ",prompt)
+        print('_________________________________________________')
         max = np.amax(list(values.values()))
         final_candidates = []
         for k in list(values.keys()):
@@ -311,7 +325,7 @@ class DoormaxAgent(Agent):
             a = Action(action[1], 1.0)
         else:
             a = Action(action[1][0], 1.0, service=action[1][1], type="exploit")
-        return a,max
+        return a
 
     def reset(self):
         pass
@@ -529,12 +543,14 @@ class DoormaxAgent(Agent):
         for failure in self.knowledge['failure'][a.type]:
             if failure.updateModel(s, a,self, visualize=visualize):
                 # sinon essayer d'update une representation
+                print('Model updated')
                 return True
         # si aucune des representation n'a pu etre mise a jour, il s'agit d'un nouveau cas
         # Il faut creer une nouvelle prediction
         params = get_parameters(a)
         for i in range(len(params)):
             params[i] = s.vs.select(name=params[i])[0].index
+        print("Adding a new failure condition")
         self.knowledge['failure'][a.type] += [Prediction(s, None, params)]
 
     def getReward(self, s, a):

@@ -68,7 +68,10 @@ class Prediction:
             for e in to_delete:
                 new.es[e.index]['width'] = 4
                 new.es[e.index]['color'] = 'black'
-            graphs.show(new, visualize, "Differences")  # for action "+str(a)+" and effect "+str(self.effect))
+            strAc = str(a.type) + ' ' + str(a.target)
+            if a.type == 'exploit':
+                strAc += ' ' + str(a.service)
+            graphs.show(new, visualize, "Differences for action "+strAc+" and effect "+str(self.effect))
 
             new.delete_edges(to_delete)
             # show(self.model)
@@ -103,7 +106,7 @@ class Prediction:
                 #     break
             # Verifier que H est connecté au reste du reseau
 
-            save=deepcopy(agent)
+            save=deepcopy(self)
 #            if not wrongCluster:
                 #    for e in new.es.select(connected=True, _from=0):
                 #        if e.target != e.source:# si il ne s'agit pas de l'arc reliant H a lui-meme
@@ -122,9 +125,9 @@ class Prediction:
                       'and', self.model.vs[edge.target].attributes()['name'], ':', edge[att])
                 print("New value for corresponding edge between", s.vs[c[edge.source]].attributes()['name'], 'and',
                       s.vs[c[edge.target]].attributes()['name'], ':', correspondingEdge[att], "\n")
-            graphs.show(self.model, visualize=visualize)
-            graphs.show(s, visualize)
-            graphs.show(new, visualize=visualize)
+            #graphs.show(self.model, visualize=visualize)
+            #graphs.show(s, visualize)
+            graphs.show(new, visualize=visualize,title='Updating model for '+t)
             self.old_models += [(self.model, s, a, self.readableParams, new)]
             self.model = new
             if parametersChanged:
@@ -135,7 +138,7 @@ class Prediction:
             if agent.updateValid():
                 return True
             else:
-                agent=save
+                self=save
         return False
         # pas la meme cause:
         # self.model.get_isomorphism_vf2()
@@ -191,8 +194,8 @@ class Effect:
             self.potentialTypes += [(type, val)]
 
     def __str__(self):
-        return str(self.oSrc[0]).split('\n')[-1] + "\n" + str(self.oDest[0]).split('\n')[
-            -1] + "\n" + self.relation + "\n" + str(self.potentialTypes)
+        return "------------------------------------------\n"+"Object Source:"+str(self.oSrc[0]).split('\n')[-1] + "\n" + "Object Cible:"+str(self.oDest[0]).split('\n')[
+            -1] + "\n" + "Relation:"+self.relation + "\n" + "Types d'affectation:"+str(self.potentialTypes)+"\n------------------------------------------"
 
     def __eq__(self, other):
         return graphs.multiIso(self.oSrc, other.oSrc) and graphs.multiIso(self.oDest,

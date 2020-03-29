@@ -133,6 +133,15 @@ def main():
 
     train_args['visualize']=False
     train_args['training']=False
+    env._generate_initial_state()
+    s = env.reset()
+    agent.new_state_value=2000
+    agent.knowledge=TutoAgent2.knowledge
+    agent.experience=TutoAgent2.experience
+
+    gen_episode = agent.generate_episode(env, max_steps)
+    env.render_episode(gen_episode)
+    plot_results(ep_tsteps, ep_rews, ep_times, env)
     ep_tsteps, ep_rews, ep_times = agent.train(env, num_episodes, max_steps, timeout,
                                                verbose=True, **train_args)
 

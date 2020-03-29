@@ -16,7 +16,7 @@ def multiIso(g1s,g2s):
             return False
     return True
 
-def show(g,visualize=False,title=None,x=0,y=600):
+def show(g,visualize=False,title=None,x=480,y=800):
     if not visualize:
         return
     if isinstance(g, Graph):
@@ -24,18 +24,24 @@ def show(g,visualize=False,title=None,x=0,y=600):
             if e.attributes()['compromised']==True or e.attributes()['is_vuln']==True:
                 e['color']='green'
         layout = g.layout_kamada_kawai()
-        drawing = plot(g, layout=layout, margin=100, vertex_label_dist=1, edge_label_dist=2,bbox=(1000,1000))
+        bbox = BoundingBox((1000,1000))
+        drawing = Plot("plot.png", bbox=bbox, background="white")
+        drawing.add(g,vertex_label_dist=1, bbox=((20, 70, 480, 800)))#, bbox=(20, 70, 580, 630)
+        drawing.redraw(drawing._ctx)
+        #drawing = plot(g, layout=layout, margin=100, vertex_label_dist=1, edge_label_dist=2,bbox=(1000, 1000))
         ctx = cairo.Context(drawing.surface)
         ctx.set_font_size(36)
         drawer = TextDrawer(ctx, title, halign=TextDrawer.CENTER)
-        drawer.draw_at(x, y, width=100)
-        # drawing.redraw()
+        drawer.draw_at(x, y, width=350,wrap=True)  # width=100
+        #surface = cairo.ImageSurface(cairo.Format.RGB24,1000,1000)
+        #drawing.redraw(ctx)
         drawing.show()
-        #plot(g, layout=layout, margin=100, vertex_label_dist=1, edge_label_dist=2)
+
+#        drawing = plot(g, layout=layout,target=title, margin=100, vertex_label_dist=1, edge_label_dist=2,bbox=(1000,1000))
+    #        #plot(g, layout=layout, margin=100, vertex_label_dist=1, edge_label_dist=2)
     elif isinstance(g, list):
         for graf in g:
-            layout = graf.layout_kamada_kawai()
-            plot(graf, layout=layout, margin=100, vertex_label_dist=1, edge_label_dist=2)
+            show(graf,visualize,title,x,y)
             '''
             from igraph import Graph, Plot
 from igraph.drawing.text import TextDrawer
@@ -111,14 +117,18 @@ def compat_node(g1, g2, n1, n2):
     try:
         #for att in node1.attributes():
         #    if not att in ['name', 'label']:
-        if node1.attributes()["classe"] != node2.attributes()["classe"]:
-            if node1.attributes()["classe"] == 'hacker' and node2.attributes()["classe"]=='machine':
+        attNode1=node1.attributes()
+        attNode2=node2.attributes()
+        if attNode1["classe"] != attNode2["classe"]:
+            if attNode1["classe"] == 'hacker' and attNode2["classe"]=='machine':
                 for e in g2.incident(node2):
-                    if g2.es[e].attributes()['name']=='compromised' and g2.es[e].attributes()['compromised']==True:
+                    attE=g2.es[e].attributes()
+                    if attE['name']=='compromised' and attE['compromised']==True:
                         return True
-            elif node2.attributes()["classe"] == 'hacker' and node1.attributes()["classe"]=='machine':
+            elif attNode2["classe"] == 'hacker' and attNode1["classe"]=='machine':
                 for e in g1.incident(node1):
-                    if g1.es[e].attributes()['name']=='compromised' and g1.es[e].attributes()['compromised']==True:
+                    attE=g1.es[e].attributes()
+                    if attE['name']=='compromised' and attE['compromised']==True:
                         return True
             else:
                 return False
@@ -133,9 +143,10 @@ def compat_edges(g1, g2, e1, e2):
     edge1 = g1.es[e1]
     edge2 = g2.es[e2]
     try:
-        att=edge1.attributes()["name"]
+        attsE1=edge1.attributes()
+        att=attsE1["name"]
 #        for att in edge1.attributes():
-        if edge1.attributes()[att] != edge2.attributes()[att]:
+        if attsE1[att] != edge2.attributes()[att]:
             return False
     except:
         print("not the same attributes between ", edge1, " and ", edge2)
