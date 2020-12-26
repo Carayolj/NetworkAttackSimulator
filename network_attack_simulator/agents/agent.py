@@ -82,6 +82,7 @@ class Agent(object):
         for t in range(max_steps):
             s_processed = self._process_state(state)
             action = self._choose_greedy_action(s_processed, action_space, epsilon)
+            print(action_space[action])
             new_state, reward, done = env.step(action_space[action])
             episode.append((state.copy(), action_space[action], reward, False))
             reward_sum += reward

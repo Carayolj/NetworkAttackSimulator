@@ -102,12 +102,21 @@ def main():
 
 
     #Tutoriel
+    #input()
+    start_train1=time.time()
     TutoEnv = NetworkAttackSimulator.from_params(1, 1, simple=True)
     TutoAgent= get_agent(agent_name, agent_scenario, TutoEnv)
+    #show(TutoAgent._process_state(TutoEnv._generate_initial_state()),True)
+
     TutoAgent.train(TutoEnv, num_episodes, max_steps, timeout,
                 verbose=True, **train_args)
     train_args['knowledge']=TutoAgent.knowledge
     train_args['experience']=TutoAgent.experience
+    end_train_1=time.time()
+    print(end_train_1-start_train1)
+    #gen_episode = TutoAgent.generate_episode(TutoEnv, max_steps)
+    #TutoEnv.render_episode(gen_episode)
+
 
     #TutoEnv = NetworkAttackSimulator.from_params(1, 2, simple=True)
     #TutoAgent= get_agent(agent_name, agent_scenario, TutoEnv)
@@ -116,9 +125,16 @@ def main():
     train_args['knowledge']=TutoAgent.knowledge
     TutoEnv2 = NetworkAttackSimulator.from_params(2, 1, simple=True)
     TutoAgent2 = get_agent(agent_name, agent_scenario, TutoEnv2)
+#    show(TutoAgent2._process_state(TutoEnv2._generate_initial_state()),True)
+    start_train2=time.time()
+
     TutoAgent2.train(TutoEnv2, num_episodes, max_steps, timeout,
                     verbose=True, **train_args)
+    end_train_2=time.time()
+    print(end_train_2-start_train2)
 
+    #gen_episode = TutoAgent2.generate_episode(TutoEnv2, max_steps)
+    #TutoEnv2.render_episode(gen_episode)
     agent = get_agent(agent_name, agent_scenario, env)
     train_args['knowledge']=TutoAgent2.knowledge
     train_args['experience']=TutoAgent2.experience
@@ -136,18 +152,20 @@ def main():
     env._generate_initial_state()
     s = env.reset()
     agent.new_state_value=2000
+
     agent.knowledge=TutoAgent2.knowledge
     agent.experience=TutoAgent2.experience
-
+    start=time.time()
+    #show(agent._process_state(env._generate_initial_state()),True)
     gen_episode = agent.generate_episode(env, max_steps)
-    env.render_episode(gen_episode)
-    plot_results(ep_tsteps, ep_rews, ep_times, env)
-    ep_tsteps, ep_rews, ep_times = agent.train(env, num_episodes, max_steps, timeout,
-                                               verbose=True, **train_args)
+    end=time.time()
+    print("scenario solved in ",end-start," secs")
+    #env.render_episode(gen_episode)
+    #plot_results(ep_tsteps, ep_rews, ep_times, env)
+    #ep_tsteps, ep_rews, ep_times = agent.train(env, num_episodes, max_steps, timeout,
+     #                                          verbose=True, **train_args)
 
-    gen_episode = agent.generate_episode(env, max_steps)
-    env.render_episode(gen_episode)
-    plot_results(ep_tsteps, ep_rews, ep_times, env)
+    #plot_results(ep_tsteps, ep_rews, ep_times, env)
 
 
 if __name__ == "__main__":

@@ -421,6 +421,7 @@ class DoormaxAgent(Agent):
         return g
 
     def _choose_greedy_action(self, state, action_space, epsilon=0.05):
+        #show(state,True)
         return action_space.index(self.policy(state))
 
     def addExperience(self, s, a, new_s, visualize=False):

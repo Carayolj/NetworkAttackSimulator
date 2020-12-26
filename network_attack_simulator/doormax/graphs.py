@@ -329,7 +329,7 @@ def matches(situation, pred,a):
         print("negative length, of course")
         exit(-1)
 def incompatible(s, a, ei, ej):
-    if multiIso(ei.oSrc, ej.oSrc) and multiIso(ei.oDest, ej.oDest) and ei.relation== ej.relation:
+    if multiIso(ei.oSrc, ej.oSrc) and multiIso(ei.oDest, ej.oDest) and ei.relation == ej.relation:
         if apply(s, a, [ei]) != apply(s, a, [ej]):
             return True
     return False
